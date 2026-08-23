@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Apricity Browser</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+<div id="app">
+
+  <!-- ═══ CUSTOM TITLE BAR (frameless, draggable) ═══ -->
+  <div id="title-bar">
+    <!-- macOS-style window controls -->
+    <div id="wc-buttons">
+      <button class="wc-btn" id="wc-close"   title="Close"></button>
+      <button class="wc-btn" id="wc-min"     title="Minimize"></button>
+      <button class="wc-btn" id="wc-max"     title="Maximize"></button>
+    </div>
+
+    <!-- Brand -->
+    <div id="brand">
+      <!-- Sunrise SVG (Apricity = warmth of winter sun) -->
+      <svg width="18" height="14" viewBox="0 0 80 58" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <line x1="40" y1="2"  x2="40" y2="10" stroke="#6d28d9" stroke-width="3" stroke-linecap="round"/>
+        <line x1="63" y1="9"  x2="57" y2="15" stroke="#6d28d9" stroke-width="3" stroke-linecap="round"/>
+        <line x1="17" y1="9"  x2="23" y2="15" stroke="#6d28d9" stroke-width="3" stroke-linecap="round"/>
+        <line x1="73" y1="30" x2="65" y2="30" stroke="#6d28d9" stroke-width="3" stroke-linecap="round"/>
+        <line x1="7"  y1="30" x2="15" y2="30" stroke="#6d28d9" stroke-width="3" stroke-linecap="round"/>
+        <path d="M 14 44 A 26 26 0 0 1 66 44" stroke="#6d28d9" stroke-width="3" fill="none" stroke-linecap="round"/>
+        <line x1="2"  y1="44" x2="78" y2="44" stroke="#6d28d9" stroke-width="3" stroke-linecap="round"/>
+        <line x1="18" y1="51" x2="62" y2="51" stroke="#c4b5fd" stroke-width="2" stroke-linecap="round"/>
+        <line x1="28" y1="57" x2="52" y2="57" stroke="#ddd6fe" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <span class="brand-name">Apricity</span>
+      <span class="brand-sub">browser</span>
+    </div>
+
+    <!-- Tab Strip -->
+    <div id="tab-bar">
+      <!-- Dynamically populated tabs -->
+    </div>
+    <button id="btn-add-tab" title="New Ephemeral Tab">+</button>
+
+    <!-- Tor Connected Pill -->
+    <div id="tor-pill" class="tor-connecting">
+      <span class="tor-dot"></span>
+      <span id="tor-label">Connecting…</span>
+    </div>
+
+    <!-- Menu -->
+    <button id="btn-menu" title="Menu">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+  </div>
+
+  <!-- ═══ NAVIGATION BAR ═══ -->
+  <div id="nav-bar">
+    <button id="btn-back"   class="nav-btn" title="Back">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15,18 9,12 15,6"/></svg>
+    </button>
+    <button id="btn-fwd"    class="nav-btn" title="Forward">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9,18 15,12 9,6"/></svg>
+    </button>
+    <button id="btn-reload" class="nav-btn" title="Reload">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="23,4 23,10 17,10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+    </button>
+
+    <div id="omnibox">
+      <!-- Tor onion icon -->
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#6d28d9" stroke-width="1.8" class="onion-icon">
+        <ellipse cx="12" cy="12" rx="10" ry="4"/>
+        <ellipse cx="12" cy="12" rx="5" ry="10"/>
+        <circle cx="12" cy="12" r="2" fill="#6d28d9" stroke="none"/>
+      </svg>
+      <input type="text" id="url-input" placeholder="Search securely or enter address" spellcheck="false" autocomplete="off">
+      <button id="btn-star" title="Bookmark">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12,2 15.09,8.26 22,9.27 17,14.14 18.18,21.02 12,17.77 5.82,21.02 7,14.14 2,9.27 8.91,8.26"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- ═══ MAIN LAYOUT ═══ -->
+  <div id="main-layout">
+
+    <!-- ── LEFT SIDEBAR ── -->
+    <aside id="sidebar">
+
+      <!-- Privacy Status -->
+      <section class="sb-section" id="privacy-section">
+        <p class="sb-label">PRIVACY STATUS</p>
+        <div class="privacy-card">
+          <div class="shield-badge">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="white" stroke="none"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+          </div>
+          <div class="privacy-card-text">
+            <strong>Maximum</strong>
+            <p class="dim">Your activity leaves no lasting trace.</p>
+            <a href="#" class="learn-more" id="learn-more-link">Learn more →</a>
+          </div>
+        </div>
+      </section>
+
+      <!-- Self-Destruct Timer -->
+      <section class="sb-section" id="timer-section">
+        <div class="sb-label-row">
+          <p class="sb-label">SELF-DESTRUCT TIMER</p>
+          <select id="timer-preset-select" class="timer-select" title="Set self-destruct duration">
+            <option value="60">1 Min</option>
+            <option value="300" selected>5 Min</option>
+            <option value="900">15 Min</option>
+            <option value="1800">30 Min</option>
+          </select>
+        </div>
+        <div id="timer-display">--:--</div>
+        <p class="dim timer-hint">This tab will self-destruct when the timer ends.</p>
+        <button class="btn-primary" id="btn-add-time">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
+          Add 5 Min
+        </button>
+        <button class="btn-ghost" id="btn-end-now">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+          End Now (Wipe)
+        </button>
+      </section>
+
+      <!-- Recently Destroyed -->
+      <section class="sb-section" id="destroyed-section">
+        <div class="sb-label-row">
+          <p class="sb-label">RECENTLY DESTROYED</p>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12" y2="16"/></svg>
+        </div>
+        <ul id="destroyed-list">
+          <li class="destroyed-empty">No tabs destroyed yet.</li>
+        </ul>
+      </section>
+
+      <!-- New Tab button -->
+      <button id="btn-new-tab-sb">+ New Tab</button>
+
+      <!-- Tor Connected Status -->
+      <div id="tor-status-bar">
+        <span class="green-dot" id="tor-dot-sb">●</span>
+        <div>
+          <div class="tor-status-name" id="tor-status-name-sb">Connecting to Tor…</div>
+          <div class="tor-status-sub" id="tor-status-sub-sb">Establishing circuit</div>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- ── CONTENT AREA ── -->
+    <main id="content-area">
+
+      <!-- New Tab Page -->
+      <div id="new-tab-page">
+        <div id="ntp-hero">
+          <!-- Sunrise icon, larger -->
+          <svg id="ntp-sunrise" viewBox="0 0 120 90" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <line x1="60" y1="4"  x2="60" y2="16" stroke="#6d28d9" stroke-width="3.5" stroke-linecap="round"/>
+            <line x1="94" y1="14" x2="86" y2="22" stroke="#6d28d9" stroke-width="3.5" stroke-linecap="round"/>
+            <line x1="26" y1="14" x2="34" y2="22" stroke="#6d28d9" stroke-width="3.5" stroke-linecap="round"/>
+            <line x1="108" y1="46" x2="96" y2="46" stroke="#6d28d9" stroke-width="3.5" stroke-linecap="round"/>
+            <line x1="12"  y1="46" x2="24" y2="46" stroke="#6d28d9" stroke-width="3.5" stroke-linecap="round"/>
+            <path d="M 22 66 A 38 38 0 0 1 98 66" stroke="#6d28d9" stroke-width="3.5" fill="none" stroke-linecap="round"/>
+            <line x1="4"   y1="66" x2="116" y2="66" stroke="#6d28d9" stroke-width="3.5" stroke-linecap="round"/>
+            <line x1="26"  y1="76" x2="94"  y2="76" stroke="#c4b5fd" stroke-width="3"   stroke-linecap="round"/>
+            <line x1="38"  y1="84" x2="82"  y2="84" stroke="#ddd6fe" stroke-width="2.5" stroke-linecap="round"/>
+          </svg>
+          <h1>Privacy that shines, then disappears.</h1>
+          <p class="ntp-subtitle">Apricity Browser self-destructs tabs after use.<br>No history. No leftovers. Just clean browsing.</p>
+          <div id="ntp-search-box">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9ca3af" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+            <input id="ntp-search-input" type="text" placeholder="Search securely with Tor">
+            <button id="ntp-search-btn">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12,5 19,12 12,19"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Feature Cards -->
+        <div id="feature-grid">
+          <div class="feature-card">
+            <div class="fc-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6d28d9" stroke-width="1.8"><ellipse cx="12" cy="12" rx="10" ry="4"/><ellipse cx="12" cy="12" rx="5" ry="10"/><circle cx="12" cy="12" r="2" fill="#6d28d9" stroke="none"/></svg>
+            </div>
+            <div class="fc-title">Tor by Default</div>
+            <div class="fc-desc">All traffic routed anonymously.</div>
+          </div>
+          <div class="feature-card">
+            <div class="fc-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6d28d9" stroke-width="1.8"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z"/><path d="M12 6v6l4 2"/></svg>
+            </div>
+            <div class="fc-title">Self-Destructing Tabs</div>
+            <div class="fc-desc">Tabs automatically erase after time ends.</div>
+          </div>
+          <div class="feature-card">
+            <div class="fc-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6d28d9" stroke-width="1.8"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            </div>
+            <div class="fc-title">Fingerprint Resistant</div>
+            <div class="fc-desc">Built to resist tracking and fingerprinting.</div>
+          </div>
+          <div class="feature-card">
+            <div class="fc-icon">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#6d28d9" stroke-width="1.8"><polyline points="3,6 5,6 21,6"/><path d="M19,6v14a2,2 0 0,1-2,2H7a2,2 0 0,1-2-2V6m3,0V4a2,2 0 0,1 2-2h4a2,2 0 0,1 2,2v2"/></svg>
+            </div>
+            <div class="fc-title">Zero Residue</div>
+            <div class="fc-desc">All data is wiped completely.</div>
+          </div>
+        </div>
+
+        <!-- Active Tabs Preview -->
+        <div id="active-tabs-preview">
+          <div class="atp-header">
+            <h3>Active Tabs</h3>
+            <p class="dim atp-sub">These tabs will self-destruct when the timer ends.</p>
+            <button class="btn-view-all" id="btn-view-all">View All Tabs ↗</button>
+          </div>
+          <div id="active-tabs-list">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+      </div>
+
+      <!-- Webview Area (shown when tab has a real URL) -->
+      <div id="webview-area">
+        <!-- webview elements appended here by JS -->
+      </div>
+
+    </main>
+  </div>
+
+  <!-- ═══ STATUS BAR ═══ -->
+  <footer id="status-bar">
+    <div id="status-left">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6d28d9" stroke-width="2.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      <span>Protection: <strong>MAXIMUM</strong></span>
+    </div>
+    <div id="status-right">
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#6b7280" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
+      <span>Auto-erase: <strong>ON</strong></span>
+    </div>
+  </footer>
+
+</div>
+<script src="ui-controller.js"></script>
+</body>
+</html>
