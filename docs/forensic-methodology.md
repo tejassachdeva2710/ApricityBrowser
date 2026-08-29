@@ -1,14 +1,15 @@
-# Apricity Browser — Forensic Audit Methodology Specification
+﻿# Apricity Browser — Forensic Audit Methodology Specification
 
-**Document Version:** 1.0.0  
+**Document Version:** 1.1.0  
 **Classification:** Security Architecture & Forensic Verification Standard  
-**Target Engine:** Apricity Zero Trust Rendering (ZTR) v1.0.0 / Electron Chromium  
+**Companion Document:** [Threat Model & Security Architecture](threat-model.md)  
+**Target Engine:** Apricity Zero Trust Rendering (ZTR) Core / Electron Chromium
 
 ---
 
 ## 1. Overview & Threat Model
 
-Apricity Browser is designed to provide ephemeral desktop web browsing through **Zero Trust Rendering (ZTR)**. Its security architecture combines per-tab ephemeral session partitions, in-memory cryptographic isolation, Tor SOCKS5 network routing, and automated self-destruct teardown lifecycles.
+Apricity Browser provides ephemeral desktop web browsing through **Zero Trust Rendering (ZTR)**. Its security architecture combines per-tab ephemeral session partitions, in-memory cryptographic isolation, Tor SOCKS5 network routing, and automated self-destruct teardown lifecycles.
 
 However, in computer forensics and adversarial analysis, privacy claims such as "zero disk residue", "unrecoverable browsing", or "complete physical wipe" frequently fail when examined against the physical realities of operating systems, solid-state flash memory controllers, and process memory managers.
 
@@ -16,6 +17,12 @@ However, in computer forensics and adversarial analysis, privacy claims such as 
 ┌─────────────────────────────────────────────────────────────────────────────────────────┐
 │                               CORE FORENSIC PRINCIPLE                                   │
 ├─────────────────────────────────────────────────────────────────────────────────────────┤
+│ A clean canary scan means:                                                              │
+│ "The known test artifacts were not detected in the scanned locations."                  │
+│                                                                                         │
+│ It does NOT mean:                                                                       │
+│ "No forensic evidence exists anywhere on the machine or physical media."                │
+│                                                                                         │
 │ Filesystem silence does NOT prove forensic zeroization. An absence of reachable files   │
 │ in user-space directory traversals demonstrates only that operating system file pointers│
 │ have been unlinked. It does not prove that plaintext data has been purged from physical │
@@ -27,7 +34,44 @@ The Apricity Forensic Artifact Auditor (`npm run forensic`) is an empirical test
 
 ---
 
-## 2. Architectural Boundaries & Isolation Layers
+## 2. The Multi-Layer Deletion Continuum
+
+To understand why application-level cleanup does not equal forensic eradication, Apricity formalizes the six layers of the deletion continuum:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       THE 6-LAYER DELETION CONTINUUM                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ 1. LOGICAL DELETION          │ Purging JavaScript Map keys & session state │
+│    (Controlled by Apricity)  │ WebCrypto key dereferencing in V8 isolate   │
+├──────────────────────────────┼─────────────────────────────────────────────┤
+│ 2. FILESYSTEM DELETION       │ Unlinking file handles via OS APIs          │
+│    (Controlled by Apricity)  │ Calling clearStorageData() / clearCache()   │
+├──────────────────────────────┼─────────────────────────────────────────────┤
+│ 3. OS MEMORY HANDLING        │ Kernel memory paging to pagefile.sys        │
+│    (Beyond App Control)      │ V8 unallocated heap slab retention          │
+├──────────────────────────────┼─────────────────────────────────────────────┤
+│ 4. FILESYSTEM JOURNALING     │ NTFS $LogFile and $UsnJrnl change logs      │
+│    (Beyond App Control)      │ Master File Table ($MFT) record remnants    │
+├──────────────────────────────┼─────────────────────────────────────────────┤
+│ 5. SSD WEAR LEVELING (FTL)   │ Controller out-of-place NAND block writes   │
+│    (Beyond App Control)      │ Over-provisioned uncollected block pools    │
+├──────────────────────────────┼─────────────────────────────────────────────┤
+│ 6. PHYSICAL NAND REMANENCE   │ Floating-gate / charge-trap oxide remanence │
+│    (Beyond App Control)      │ Hardware-level forensic microscope recovery │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+1. **Logical Deletion**: Application-level reference dereferencing (e.g. `vault._vault.delete(sessionUUID)` and `_ephemeralStorageStores.delete(userContextId)`). *Apricity enforces this.*
+2. **Filesystem Deletion**: Operating system directory entry unlinking via standard system calls. *Apricity enforces this by verifying no partition directories exist under `%APPDATA%\...\Partitions`.*
+3. **OS-Level Memory Handling**: Under memory pressure, the OS Kernel Virtual Memory Manager can page process memory pages out of DRAM and write them into `pagefile.sys` or `swapfile.sys`. *Apricity cannot control OS virtual memory paging.*
+4. **Filesystem Journaling**: Modern journaled filesystems (such as NTFS on Windows or ext4 on Linux) record file creation, modification, and deletion transactions in system journals (`$LogFile`, `$UsnJrnl`). Transaction metadata remains until log rollover. *Apricity cannot purge OS filesystem journals from user-space.*
+5. **SSD Wear Leveling (Flash Translation Layer)**: NAND flash memory cannot overwrite bytes in place. The SSD controller writes modified blocks to fresh physical NAND cells and marks old blocks as stale. The stale blocks retain original plaintext data until asynchronous TRIM/garbage collection occurs. *Apricity cannot control SSD controller FTL behavior.*
+6. **Physical NAND Remanence**: Physical microscopic charge levels in floating-gate or charge-trap flash cells can retain forensic traces readable by specialized hardware equipment. *Apricity cannot alter physical semiconductor behavior.*
+
+---
+
+## 3. Architectural Boundaries & Isolation Layers
 
 Apricity operates across four distinct architectural layers, each with separate storage mechanisms, lifecycle scopes, and forensic observables:
 
@@ -64,14 +108,13 @@ Apricity operates across four distinct architectural layers, each with separate 
 
 ### Critical Architectural Distinction: Simulator vs Native Webview
 
-A fundamental architectural distinction exists within Apricity:
-1. **`ZeroTrustRenderer.mjs` (Layer A)** is an in-memory cryptographic state machine simulator. It encrypts key-value items with WebCrypto AES-256-GCM and stores ciphertext in memory `Map` objects. It is evaluated directly in unit test suites (`npm test`).
+1. **`ZeroTrustRenderer.mjs` (Layer A)** is an in-memory cryptographic state machine simulator. It encrypts key-value items with WebCrypto AES-256-GCM and stores ciphertext in memory `Map` objects. It is evaluated directly in unit and adversarial test suites (`npm test`).
 2. **`<webview>` Web Content (Layer B)** runs directly on Chromium's native C++ Blink engine. Real DOM storage (`document.cookie`, `localStorage`, `indexedDB`) is managed by Chromium's in-memory partition engine (`ephemeral-${sessionUUID}`). Webview storage does **not** pass through the ZTR JavaScript WebCrypto wrapper.
 3. The forensic auditor tests **both** boundaries: it validates ZTR key destruction and in-memory map purging, while also performing binary disk sweeps across Chromium's runtime storage paths.
 
 ---
 
-## 3. Forensic Audit Lifecycle & Methodology
+## 4. Forensic Audit Lifecycle & Methodology
 
 The auditor executes a controlled 6-phase audit lifecycle to empirically measure residue:
 
@@ -88,7 +131,7 @@ The auditor executes a controlled 6-phase audit lifecycle to empirically measure
 +-----------------------------------------------------------------------------------------+
 ```
 
-### 3.1 Canary Token Specification
+### 4.1 Canary Token Specification
 Canary tokens are generated with high entropy to avoid collision with standard strings while allowing robust binary regex carving:
 ```
 CANARY_<SUBSYSTEM>_<SESSION_UUID_SHORT>_<TIMESTAMP>_<HIGH_ENTROPY_HEX>
@@ -101,7 +144,7 @@ CANARY_CACHE_a1b2c3d4_1772345678000_cba09876543210fedcba9876
 CANARY_VAULT_a1b2c3d4_1772345678000_13579bdf2468ace013579bdf
 ```
 
-### 3.2 Multi-Encoding Binary Matching Engine
+### 4.2 Multi-Encoding Binary Matching Engine
 Chromium and operating systems store strings in varying binary encodings:
 - **UTF-8 / ASCII**: Standard web strings and plain text files.
 - **UTF-16LE**: Chromium LevelDB values (DOMStorage), V8 bytecode caches, and Windows internal APIs.
@@ -111,51 +154,7 @@ The `FilesystemScanner` converts every canary token into multiple `Buffer` encod
 
 ---
 
-## 4. Detection Capabilities vs Inherent Physical & OS Limitations
-
-Software-level automated auditing has definitive boundaries. The auditor explicitly documents what it can verify and what is physically unverifiable from user-space JavaScript:
-
-```
-                  ┌──────────────────────────────────────────────┐
-                  │             USER-SPACE AUDITOR               │
-                  │   (Bounded by OS APIs, Permissions, & FS)    │
-                  └──────────────────────┬───────────────────────┘
-                                         │  CANNOT PENETRATE
-     ════════════════════════════════════╪══════════════════════════════════════
-     HARDWARE & OS PERSISTENCE BARRIERS  │
-                                         ▼
-     ┌─────────────────────────────────────────────────────────────────────────┐
-     │ 1. SSD Flash Translation Layer (FTL) & Wear-Leveling Out-of-Place Writes│
-     │ 2. Kernel Virtual Memory Subsystem (pagefile.sys, swapfile.sys, RAM)    │
-     │ 3. NTFS Master File Table ($MFT) & Transaction Journals ($LogFile)      │
-     │ 4. Host OS Forensics (Windows Prefetch, BAM/DAM, Shellbags, WER Dumps)  │
-     │ 5. Hardware GPU Compositor Textures & Display Driver VRAM Buffers       │
-     └─────────────────────────────────────────────────────────────────────────┘
-```
-
-### 4.1 Flash Storage (SSD) & Wear-Leveling Out-of-Place Writes
-NAND flash memory cannot overwrite bytes in-place. The SSD controller's **Flash Translation Layer (FTL)** writes new data to unallocated physical blocks and marks old blocks as stale. User-space file overwriting writes to *new physical cells*, leaving the original plaintext intact in over-provisioning pools until asynchronous garbage collection occurs.
-
-### 4.2 Operating System Paging & RAM Remanence
-Under memory pressure, the Windows Virtual Memory Manager pages virtual memory pages belonging to Node.js, Electron, or Chromium renderer processes out of physical RAM and writes them to `pagefile.sys` or `swapfile.sys`. Plaintext keys and DOM storage cached in memory can be committed to non-volatile disk without browser awareness.
-
-### 4.3 V8 Engine Garbage Collection vs Zeroization
-JavaScript's `globalThis.gc()` marks unreferenced V8 objects as reclaimable; it **does not zero physical memory**. Plaintext string buffers remain in unallocated V8 heap slabs and Node.js `Buffer` pools indefinitely until overwritten by new allocations.
-
-### 4.4 Filesystem Metadata & Transaction Journals
-On NTFS (Windows), file creations, renames, and deletions are recorded in transaction journals (`$LogFile` and `$UsnJrnl`). When ephemeral files or directories are deleted, their record—including timestamp, file name, and directory path—remains in the NTFS journal until journal rollover.
-
----
-
-## 5. Platform-Specific Filesystem Limitations (Windows)
-
-- **Mandatory File Locking (`EBUSY` / `EPERM`)**: On Windows, open handles held by Chromium background helper processes prevent file reading or deletion. The scanner uses retry backoff and handles lock errors gracefully.
-- **Hidden & Multi-Rooted AppData Paths**: Files are distributed across `%APPDATA%` (Roaming), `%LOCALAPPDATA%` (Local), and `%TEMP%`. The auditor dynamically resolves these roots from environment variables.
-- **Path Length Limits (`MAX_PATH`)**: Nested Chromium LevelDB paths can approach 260 characters.
-
----
-
-## 6. Multi-Dimensional Verification Taxonomy & Justification Codes
+## 5. Multi-Dimensional Verification Taxonomy & Justification Codes
 
 The auditor rejects simplistic single-boolean verdicts (such as `CLEAN: true`). All findings are categorized into a multi-dimensional matrix:
 
@@ -180,39 +179,7 @@ The auditor rejects simplistic single-boolean verdicts (such as `CLEAN: true`). 
 
 ---
 
-## 7. Multi-Dimensional Evaluation Matrix Dimensions
-
-1. **Dimension 1: In-Memory Cryptographic Vault (Layer 4)**
-   - `VAULT_NON_EXTRACTABLE_KEY`: Non-extractable WebCrypto AES-256-GCM key generation (`PASS`).
-   - `VAULT_DECRYPTION_INVALIDATION`: Invalidation of decryption capability upon key wipe (`PASS`).
-   - `VAULT_KEY_DEREFERENCING`: Key reference removal from vault Map (`PASS`).
-   - `VAULT_PHYSICAL_RAM_ZEROIZATION`: Physical DRAM zeroization (`UNVERIFIED_V8_HEAP_RAW_INACCESSIBLE`).
-
-2. **Dimension 2: In-Memory Storage Simulator (Layer 1 & 2)**
-   - `SIM_MULTI_STORE_ENCRYPTION`: Ephemeral encrypted storage stores (`PASS`).
-   - `SIM_EPHEMERAL_STORE_PURGE`: Store deletion from memory Maps on tab close (`PASS`).
-   - `SIM_CROSS_TAB_ISOLATION`: Tab context isolation (`PASS`).
-   - `SIM_V8_HEAP_SLAB_ZEROIZATION`: V8 ArrayBuffer slab zeroization (`UNVERIFIED_V8_HEAP_RAW_INACCESSIBLE`).
-
-3. **Dimension 3: Chromium Partition Filesystem (Native Webview Storage)**
-   - `CHROMIUM_IN_MEMORY_PARTITION_NON_PERSISTENCE`: RAM-only partition isolation (`PASS`).
-   - `CHROMIUM_DISK_RESIDUE_SCAN`: Binary deep scan across userData and subfolders (`PASS`).
-   - `CHROMIUM_UNALLOCATED_CLUSTER_SLACK`: Unallocated cluster carving (`UNVERIFIED_OS_METADATA_JOURNAL_PRIVILEGED`).
-   - `CHROMIUM_NAND_FLASH_PHYSICAL_ZEROIZATION`: Physical flash block state (`UNVERIFIED_PHYSICAL_FTL_UNREACHABLE`).
-
-4. **Dimension 4: Tor Daemon & SOCKS5 Routing State**
-   - `TOR_SOCKS5_REMOTE_DNS_CONFIG`: SOCKS5 proxy rules with remote DNS (`PASS`).
-   - `TOR_DATADIRECTORY_CANARY_ISOLATION`: tor-data isolation with 0 user canaries (`PASS`).
-   - `TOR_CIRCUIT_RAM_STATE_ERASURE`: Tor daemon RAM circuit zeroization (`UNVERIFIED_TOR_CONSENSUS_RETENTION`).
-
-5. **Dimension 5: Host OS Forensic Artifacts**
-   - `OS_CRASHPAD_MINIDUMP_EXCLUSION`: Crashpad minidump inspection (`PASS`).
-   - `OS_VIRTUAL_MEMORY_PAGEFILE_EXCLUSION`: Virtual memory pagefile inspection (`UNVERIFIED_KERNEL_PAGING_INACCESSIBLE`).
-   - `OS_NTFS_METADATA_JOURNAL_PURGE`: NTFS transaction journal purging (`UNVERIFIED_OS_METADATA_JOURNAL_PRIVILEGED`).
-
----
-
-## 8. CLI Usage Reference
+## 6. CLI Usage Reference
 
 Run the forensic auditor CLI:
 
