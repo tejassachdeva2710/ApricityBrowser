@@ -91,6 +91,22 @@ npm test
 
 ---
 
+## 🔬 Forensic Artifact Auditor
+
+Apricity includes an automated **Forensic Artifact Auditor** that injects high-entropy canary tokens into session storage subsystems, executes the tab teardown protocol, and deep-scans the filesystem and runtime memory for residual artifacts:
+
+```bash
+# Run forensic auditor scan
+npm run forensic
+
+# Generate structured JSON report
+npm run forensic -- --out forensic-report.json
+```
+
+For complete threat models, physical limitations (SSD FTL, RAM paging, NTFS journals), and multi-dimensional `PASS` / `FAIL` / `UNVERIFIED` taxonomy, read the [Forensic Methodology Specification](docs/forensic-methodology.md).
+
+---
+
 ## 📄 License
 
 Licensed under the [MIT License](LICENSE).

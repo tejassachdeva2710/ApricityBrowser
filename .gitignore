@@ -20,3 +20,6 @@ Desktop.ini
 .vscode/
 .idea/
 *.swp
+
+# Multi-agent teamwork metadata
+.agents/
