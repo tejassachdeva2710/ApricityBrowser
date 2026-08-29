@@ -80,7 +80,7 @@ export class ZeroTrustRenderer {
     }
 
     const store = this._ephemeralStorageStores.get(tabState.userContextId);
-    if (!store || !store[storeType]) {
+    if (!store || !store[storeType] || !(store[storeType] instanceof Map)) {
       throw new Error(`[ZeroTrustRenderer] Invalid storage context for userContextId ${tabState.userContextId}`);
     }
 
@@ -103,7 +103,7 @@ export class ZeroTrustRenderer {
     }
 
     const store = this._ephemeralStorageStores.get(tabState.userContextId);
-    if (!store || !store[storeType]) return null;
+    if (!store || !store[storeType] || !(store[storeType] instanceof Map)) return null;
 
     const encrypted = store[storeType].get(key);
     if (!encrypted) return null;

@@ -5,7 +5,9 @@
   "main": "src/app/main.mjs",
   "type": "module",
   "scripts": {
-    "test": "node tests/test_ztr_lifecycle.mjs",
+    "test": "node tests/test_ztr_lifecycle.mjs && node tests/test_adversarial_isolation.mjs",
+    "test:lifecycle": "node tests/test_ztr_lifecycle.mjs",
+    "test:adversarial": "node tests/test_adversarial_isolation.mjs",
     "start": "node src/ztr/ZTRLauncher.mjs",
     "launch": "electron ."
   },
