@@ -4,6 +4,8 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
 import net from 'net';
+import fs from 'fs';
+import os from 'os';
 import { ZeroTrustRenderer } from '../ztr/ZeroTrustRenderer.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -15,26 +17,56 @@ app.commandLine.appendSwitch('disk-cache-size', '1');
 app.commandLine.appendSwitch('proxy-server', 'socks5://127.0.0.1:9150');
 // Force Chromium to delegate DNS resolution (.onion domains) to the Tor SOCKS proxy
 app.commandLine.appendSwitch('host-resolver-rules', 'MAP * ~NOTFOUND , EXCLUDE 127.0.0.1');
-app.commandLine.appendSwitch('ignore-certificate-errors');
 
-// Dynamic search for Tor executable across common installation paths
+// Dynamic search for Tor executable across common installation paths on Windows, macOS, and Linux
 function findTorExecutable() {
   if (process.env.TOR_EXEC_PATH && fs.existsSync(process.env.TOR_EXEC_PATH)) {
     return process.env.TOR_EXEC_PATH;
   }
-  const candidatePaths = [
-    'C:\\Users\\Tejas Sachdeva\\Desktop\\Academics & JEE\\Tor Browser\\Browser\\TorBrowser\\Tor\\tor.exe',
-    path.join(process.env.LOCALAPPDATA || '', 'Tor Browser', 'Browser', 'TorBrowser', 'Tor', 'tor.exe'),
-    path.join(process.env.PROGRAMFILES || 'C:\\Program Files', 'Tor Browser', 'Browser', 'TorBrowser', 'Tor', 'tor.exe'),
-    path.join(process.env['PROGRAMFILES(X86)'] || 'C:\\Program Files (x86)', 'Tor Browser', 'Browser', 'TorBrowser', 'Tor', 'tor.exe'),
-    'C:\\Tor\\tor.exe',
-    '/usr/bin/tor',
-    '/usr/local/bin/tor'
-  ];
+
+  const homeDir = os.homedir();
+  const candidatePaths = [];
+
+  if (process.platform === 'win32') {
+    if (process.env.LOCALAPPDATA) {
+      candidatePaths.push(path.join(process.env.LOCALAPPDATA, 'Tor Browser', 'Browser', 'TorBrowser', 'Tor', 'tor.exe'));
+    }
+    if (process.env.PROGRAMFILES) {
+      candidatePaths.push(path.join(process.env.PROGRAMFILES, 'Tor Browser', 'Browser', 'TorBrowser', 'Tor', 'tor.exe'));
+    }
+    if (process.env['PROGRAMFILES(X86)']) {
+      candidatePaths.push(path.join(process.env['PROGRAMFILES(X86)'], 'Tor Browser', 'Browser', 'TorBrowser', 'Tor', 'tor.exe'));
+    }
+    if (homeDir) {
+      candidatePaths.push(path.join(homeDir, 'Desktop', 'Tor Browser', 'Browser', 'TorBrowser', 'Tor', 'tor.exe'));
+    }
+    candidatePaths.push('C:\\Tor\\tor.exe');
+  } else if (process.platform === 'darwin') {
+    candidatePaths.push(
+      '/Applications/Tor Browser.app/Contents/MacOS/Tor/tor.real',
+      '/Applications/Tor Browser.app/Contents/MacOS/Tor/tor',
+      path.join(homeDir, 'Applications', 'Tor Browser.app', 'Contents', 'MacOS', 'Tor', 'tor.real'),
+      path.join(homeDir, 'Applications', 'Tor Browser.app', 'Contents', 'MacOS', 'Tor', 'tor'),
+      '/opt/homebrew/bin/tor',
+      '/usr/local/bin/tor',
+      '/usr/bin/tor'
+    );
+  } else {
+    // Linux / BSD / POSIX
+    candidatePaths.push(
+      '/usr/bin/tor',
+      '/usr/local/bin/tor',
+      '/usr/sbin/tor',
+      path.join(homeDir, '.local', 'share', 'torbrowser', 'tbb', 'x86_64', 'tor-browser', 'Browser', 'TorBrowser', 'Tor', 'tor'),
+      path.join(homeDir, '.local', 'share', 'torbrowser', 'tbb', 'i686', 'tor-browser', 'Browser', 'TorBrowser', 'Tor', 'tor'),
+      path.join(homeDir, '.local', 'share', 'tor-browser', 'Browser', 'TorBrowser', 'Tor', 'tor')
+    );
+  }
+
   for (const p of candidatePaths) {
     if (p && fs.existsSync(p)) return p;
   }
-  return 'tor';
+  return process.platform === 'win32' ? 'tor.exe' : 'tor';
 }
 
 const TOR_EXE = findTorExecutable();
@@ -49,10 +81,15 @@ const ztr = new ZeroTrustRenderer();
 let nextTabId = 1;
 
 async function applyTorProxy(sess) {
-  await sess.setProxy({
-    proxyRules: `socks5://127.0.0.1:${activeTorPort}`,
-    proxyBypassRules: '<-loopback>'
-  });
+  if (!sess) return;
+  try {
+    await sess.setProxy({
+      proxyRules: `socks5://127.0.0.1:${activeTorPort}`,
+      proxyBypassRules: '<-loopback>'
+    });
+  } catch (err) {
+    console.warn('[Apricity] Failed to set proxy configuration on session:', err.message);
+  }
 }
 
 // Test if a TCP port is accepting connections (Tor already up)
@@ -85,13 +122,14 @@ async function startTorDaemon() {
     if (await isPortOpen(port)) {
       activeTorPort = port;
       console.log(`[Apricity] ✓ Tor SOCKS proxy already running on port ${port}. Reusing.`);
+      await applyTorProxy(session.defaultSession);
       notifyTorStatus(true);
       return;
     }
   }
 
-  // 2. Not running — start our own tor.exe
-  console.log(`[Apricity] Tor not found. Spawning binary: ${TOR_EXE}...`);
+  // 2. Not running — start our own tor process
+  console.log(`[Apricity] Tor proxy not detected. Attempting to spawn: ${TOR_EXE}...`);
   try {
     const torDataDir = path.join(app.getPath('userData'), 'tor-data');
     if (!fs.existsSync(torDataDir)) fs.mkdirSync(torDataDir, { recursive: true });
@@ -101,20 +139,21 @@ async function startTorDaemon() {
     });
 
     let bootstrapped = false;
-    torProcess.stdout.on('data', (data) => {
+    torProcess.stdout.on('data', async (data) => {
       const msg = data.toString();
       console.log('[Tor]', msg.trim());
       if (msg.includes('Bootstrapped 100%') && !bootstrapped) {
         bootstrapped = true;
         activeTorPort = 9150;
         console.log('[Apricity] ✓ Tor bootstrapped 100%');
+        await applyTorProxy(session.defaultSession);
         notifyTorStatus(true);
       }
     });
     torProcess.stderr.on('data', (d) => console.error('[Tor ERR]', d.toString().trim()));
-    torProcess.on('error', (err) => console.warn('[Apricity] tor.exe error:', err.message));
+    torProcess.on('error', (err) => console.warn('[Apricity] Tor process error:', err.message));
   } catch (err) {
-    console.warn('[Apricity] Could not spawn tor.exe:', err.message);
+    console.warn('[Apricity] Could not spawn Tor process:', err.message);
   }
 }
 
@@ -136,7 +175,13 @@ async function createWindow() {
   });
 
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
-  mainWindow.on('closed', () => { mainWindow = null; torProcess?.kill(); });
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+    if (torProcess) {
+      try { torProcess.kill(); } catch (_) {}
+      torProcess = null;
+    }
+  });
 }
 
 // ── Window control IPC ──
@@ -189,6 +234,10 @@ ipcMain.handle('ztr:close-tab', async (_event, tabId) => {
 
 // ── App Lifecycle ──
 app.whenReady().then(async () => {
+  // Deny permission requests by default on default session
+  session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
+  await applyTorProxy(session.defaultSession);
+
   await createWindow();
   startTorDaemon(); // Non-blocking — notifyTorStatus() handles timing
   app.on('activate', () => {
@@ -197,6 +246,9 @@ app.whenReady().then(async () => {
 });
 
 app.on('window-all-closed', () => {
-  torProcess?.kill();
+  if (torProcess) {
+    try { torProcess.kill(); } catch (_) {}
+    torProcess = null;
+  }
   if (process.platform !== 'darwin') app.quit();
 });

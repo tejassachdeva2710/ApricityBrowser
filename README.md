@@ -19,14 +19,14 @@ Built around the core concept of **Zero Trust Rendering (ZTR)**, Apricity treats
 
 - 🔐 **Zero Trust Rendering (ZTR)**: Per-tab in-memory cryptographic isolation. Data is encrypted in memory using WebCrypto AES-256-GCM non-extractable keys.
 - ⏱ **Self-Destructing Tabs**: User-configurable timers (1 min, 5 min, 15 min, 30 min) per tab with real-time countdown HUD.
-- 💣 **3-Phase Destruction Protocol**:
-  1. **Phase A**: WebCrypto Session Key Destruction (data becomes forensically unreadable immediately).
-  2. **Phase B**: RAM Storage & Partition Purge.
-  3. **Phase C**: Renderer Process Termination & Memory Garbage Collection.
-- 🧅 **Tor Network Native**: All network traffic — including clearnet and `.onion` Hidden Services — routes automatically through Tor SOCKS5 proxy (`socks5://127.0.0.1:9150`) with remote SOCKS5 DNS resolution.
+- 💣 **3-Phase Tab Cleanup Protocol**:
+  1. **Phase A**: WebCrypto Session Key Dereferencing & Invalidation.
+  2. **Phase B**: Ephemeral RAM Storage & Partition Purge.
+  3. **Phase C**: Tab State Dereferencing & Cleanup.
+- 🧅 **Tor Network Native**: Traffic — including clearnet and `.onion` Hidden Services — is configured to route through Tor SOCKS5 proxy (`socks5://127.0.0.1:9150`) with remote SOCKS5 DNS resolution.
 - 🔍 **Strict `.onion` Search Engine**: Default search engine uses DuckDuckGo's official `.onion` Hidden Service.
 - 🎨 **Modern Minimalist UI**: Frameless window, light/purple custom interface, vertical privacy sidebar, and tab strip.
-- 🧹 **Zero Disk Residue**: RAM-only ephemeral partitions with disk caching permanently disabled.
+- 🧹 **Zero Disk Residue**: RAM-only ephemeral partitions with disk caching disabled.
 
 ---
 
@@ -83,7 +83,7 @@ npm start
 
 ## 🧪 Automated Testing
 
-Run the Zero Trust Rendering test suite covering key vault zeroing, container isolation, and preference audits:
+Run the Zero Trust Rendering test suite covering key vault lifecycle, container isolation, and preference audits:
 
 ```bash
 npm test

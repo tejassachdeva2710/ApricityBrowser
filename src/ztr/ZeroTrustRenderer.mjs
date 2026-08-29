@@ -118,10 +118,10 @@ export class ZeroTrustRenderer {
   }
 
   /**
-   * TabClose Handler — Executes Cryptographic Wipe Protocol (3-Phase Destruction).
-   * Phase A: Destroys WebCrypto AES Key (data becomes forensically inaccessible).
+   * TabClose Handler — Executes Tab Cleanup Protocol (3-Phase Cleanup).
+   * Phase A: Releases WebCrypto AES Key reference from vault.
    * Phase B: Purges contextual identity and associated storage stores.
-   * Phase C: Releases process reference and updates tab status to 'wiped'.
+   * Phase C: Cleans up active tab state and updates tab status to 'wiped'.
    * 
    * @param {string|number} tabId 
    * @returns {Promise<object>} Destroyed Tab Summary
@@ -134,7 +134,7 @@ export class ZeroTrustRenderer {
 
     tabState.status = 'destroying';
 
-    // Phase A: Key Destruction (Layer 4)
+    // Phase A: Key Invalidation & Vault Cleanup (Layer 4)
     const keyDestroyed = this.cryptoVault.destroyKey(tabState.sessionUUID);
     tabState.cryptoSealed = false;
 

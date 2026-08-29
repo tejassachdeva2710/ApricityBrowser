@@ -6,9 +6,9 @@
  * 
  * Key Properties:
  * 1. Generates non-extractable AES-256-GCM keys per tab session UUID using WebCrypto API.
- * 2. Non-extractable keys prevent key exfiltration even if the browser process is inspected.
- * 3. Destroying a key overwrites memory references and triggers Garbage Collection,
- *    making all tab data forensically unreadable before storage wiping completes.
+ * 2. Setting extractable to false prevents key extraction via WebCrypto export APIs.
+ * 3. Destroying a key clears the in-memory reference and removes the entry from the vault Map,
+ *    preventing further cryptographic operations for that session.
  */
 
 import { webcrypto } from 'node:crypto';
@@ -40,7 +40,7 @@ export class ZTRCryptoVault {
         name: 'AES-GCM',
         length: 256
       },
-      false, // NOT extractable — key cannot be exported or leaked
+      false, // NOT extractable via WebCrypto export APIs
       ['encrypt', 'decrypt']
     );
 
@@ -104,12 +104,11 @@ export class ZTRCryptoVault {
   }
 
   /**
-   * Destroys the ephemeral AES key for a session UUID.
-   * Step 1: Overwrites internal reference.
+   * Clears the ephemeral AES key for a session UUID and removes it from the vault.
+   * Step 1: Clears internal key reference.
    * Step 2: Removes entry from vault Map.
-   * Step 3: Returns status object confirming key zeroing.
    * @param {string} sessionUUID 
-   * @returns {boolean} True if key was successfully destroyed
+   * @returns {boolean} True if key was successfully found and removed
    */
   destroyKey(sessionUUID) {
     const entry = this._vault.get(sessionUUID);
@@ -117,12 +116,12 @@ export class ZTRCryptoVault {
       return false;
     }
 
-    // Zero out references immediately
+    // Clear references from vault
     entry.key = null;
     entry.destroyed = true;
     this._vault.delete(sessionUUID);
 
-    // Trigger GC if supported in runtime environment
+    // Request GC if exposed in runtime environment
     if (typeof globalThis.gc === 'function') {
       globalThis.gc();
     }
