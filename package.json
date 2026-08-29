@@ -1,6 +1,6 @@
-﻿{
+{
   "name": "apricity-browser-ztr",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Apricity Browser — Experimental Ephemeral Session Desktop Browser",
   "main": "src/app/main.mjs",
   "type": "module",
@@ -13,6 +13,8 @@
     "test:forensic": "node tests/test_forensic_auditor.mjs",
     "test:scanner": "node tests/test_adversarial_scanner.mjs",
     "test:stress": "node tests/test_challenger_forensic_stress.mjs",
+    "test:electron": "node node_modules/electron/cli.js tests/test_electron_live.mjs",
+    "test:all": "npm test && npm run test:scanner && npm run test:stress && npm run test:electron",
     "forensic": "node src/forensics/cli.mjs"
   },
   "keywords": [

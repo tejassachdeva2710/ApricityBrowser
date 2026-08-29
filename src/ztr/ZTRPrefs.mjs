@@ -1,8 +1,13 @@
 /**
  * ZTRPrefs.mjs
  * 
- * Preference verification and enforcement module for Zero Trust Rendering.
- * Ensures all security-critical Gecko prefs are active and hasn't been tampered with.
+ * Preference verification module for the Zero Trust Rendering Reference Specification.
+ * Validates baseline security preferences defined in ztr-user.js.
+ * 
+ * Architectural Context:
+ * Serves as the ZTR conceptual policy auditor. The Electron GUI runtime
+ * enforces equivalent sandboxing via Chromium command-line switches and
+ * webPreferences.
  */
 
 import fs from 'fs';

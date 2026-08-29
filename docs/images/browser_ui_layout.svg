@@ -1,0 +1,120 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 750" width="100%" height="100%">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0a0a0f"/>
+      <stop offset="100%" stop-color="#12111a"/>
+    </linearGradient>
+    <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#f59e0b"/>
+      <stop offset="100%" stop-color="#fbbf24"/>
+    </linearGradient>
+    <linearGradient id="cardGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#181824"/>
+      <stop offset="100%" stop-color="#13131c"/>
+    </linearGradient>
+    <filter id="shadow" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#000000" flood-opacity="0.6"/>
+    </filter>
+  </defs>
+
+  <!-- Window Frame -->
+  <rect x="20" y="20" width="1160" height="710" rx="12" fill="url(#bgGrad)" stroke="#27273a" stroke-width="1.5" filter="url(#shadow)"/>
+
+  <!-- Top Navigation & Tab Bar -->
+  <rect x="20" y="20" width="1160" height="52" rx="12" fill="#13131d"/>
+  <rect x="20" y="60" width="1160" height="12" fill="#13131d"/>
+  <line x1="20" y1="72" x2="1180" y2="72" stroke="#232332" stroke-width="1"/>
+
+  <!-- Window Controls (Windows style) -->
+  <circle cx="45" cy="46" r="6" fill="#ef4444"/>
+  <circle cx="65" cy="46" r="6" fill="#f59e0b"/>
+  <circle cx="85" cy="46" r="6" fill="#10b981"/>
+
+  <!-- App Title & Logo -->
+  <text x="110" y="51" fill="#fbbf24" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="15" font-weight="700" letter-spacing="1">☀️ APRICITY</text>
+  <text x="200" y="51" fill="#71717a" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="12" font-weight="500">v0.1.0-ephemeral</text>
+
+  <!-- Tab 1 (Active) -->
+  <rect x="310" y="30" width="220" height="36" rx="8" fill="#1e1e2d" stroke="#f59e0b" stroke-width="1.2"/>
+  <circle cx="328" cy="48" r="4" fill="#10b981"/>
+  <text x="340" y="52" fill="#f4f4f5" font-family="sans-serif" font-size="12" font-weight="600">Session A: DuckDuckGo</text>
+  <text x="512" y="52" fill="#a1a1aa" font-family="sans-serif" font-size="12">×</text>
+
+  <!-- Tab 2 (Background) -->
+  <rect x="540" y="30" width="180" height="36" rx="8" fill="#151520" stroke="#27273a" stroke-width="1"/>
+  <circle cx="558" cy="48" r="4" fill="#71717a"/>
+  <text x="570" y="52" fill="#a1a1aa" font-family="sans-serif" font-size="12" font-weight="500">Session B: Tor Check</text>
+  <text x="702" y="52" fill="#71717a" font-family="sans-serif" font-size="12">×</text>
+
+  <!-- New Tab Button -->
+  <rect x="730" y="34" width="28" height="28" rx="6" fill="#1c1c28" stroke="#2e2e42" stroke-width="1"/>
+  <text x="739" y="53" fill="#fbbf24" font-family="sans-serif" font-size="16" font-weight="700">+</text>
+
+  <!-- Tor Status Pill (Top Right) -->
+  <rect x="990" y="32" width="170" height="30" rx="15" fill="#0f291e" stroke="#10b981" stroke-width="1"/>
+  <circle cx="1006" cy="47" r="4.5" fill="#10b981"/>
+  <text x="1018" y="52" fill="#34d399" font-family="sans-serif" font-size="11" font-weight="600">TOR SOCKS5 : READY</text>
+
+  <!-- URL Bar & Self-Destruct HUD -->
+  <rect x="20" y="72" width="1160" height="50" fill="#0f0f17"/>
+  <line x1="20" y1="122" x2="1180" y2="122" stroke="#232332" stroke-width="1"/>
+
+  <!-- Nav Buttons -->
+  <text x="45" y="103" fill="#71717a" font-family="sans-serif" font-size="16">←</text>
+  <text x="75" y="103" fill="#71717a" font-family="sans-serif" font-size="16">→</text>
+  <text x="105" y="103" fill="#71717a" font-family="sans-serif" font-size="16">↻</text>
+
+  <!-- Address Input -->
+  <rect x="140" y="80" width="700" height="34" rx="6" fill="#161622" stroke="#2d2d42" stroke-width="1"/>
+  <text x="155" y="102" fill="#a1a1aa" font-family="monospace" font-size="12">🔒 https://duckduckgogg42xjoc72x3sjasowoarfbgcmvfimaftt6twagswzczad.onion</text>
+
+  <!-- Ephemeral Countdown Timer Badge -->
+  <rect x="860" y="80" width="190" height="34" rx="6" fill="#2d1a04" stroke="#f59e0b" stroke-width="1.2"/>
+  <text x="875" y="102" fill="#fbbf24" font-family="sans-serif" font-size="12" font-weight="700">⏳ AUTO-DESTRUCT: 04:42</text>
+
+  <!-- Wipe Now Button -->
+  <rect x="1060" y="80" width="100" height="34" rx="6" fill="#3b0d0c" stroke="#ef4444" stroke-width="1"/>
+  <text x="1078" y="102" fill="#fca5a5" font-family="sans-serif" font-size="11" font-weight="700">🔥 WIPE TAB</text>
+
+  <!-- Main Viewport / Webview Area -->
+  <rect x="40" y="145" width="1120" height="520" rx="8" fill="url(#cardGrad)" stroke="#222233" stroke-width="1"/>
+
+  <!-- Splash / Search Card in Center of Viewport -->
+  <circle cx="600" cy="260" r="42" fill="#1f1e2e" stroke="#fbbf24" stroke-width="2"/>
+  <text x="582" y="274" fill="#fbbf24" font-size="36">☀️</text>
+
+  <text x="600" y="340" text-anchor="middle" fill="#ffffff" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif" font-size="24" font-weight="700" letter-spacing="0.5">Apricity Ephemeral Session</text>
+  <text x="600" y="370" text-anchor="middle" fill="#a1a1aa" font-family="sans-serif" font-size="14">In-Memory RAM Partition: <tspan fill="#38bdf8" font-family="monospace">ephemeral-8f3a9e22-1d54-4b10</tspan></text>
+
+  <!-- Isolation Cards Grid -->
+  <g transform="translate(180, 410)">
+    <!-- Card 1 -->
+    <rect x="0" y="0" width="250" height="120" rx="8" fill="#11111a" stroke="#252538" stroke-width="1"/>
+    <text x="20" y="35" fill="#38bdf8" font-family="sans-serif" font-size="14" font-weight="700">🔒 WebCrypto Vault</text>
+    <text x="20" y="60" fill="#a1a1aa" font-family="sans-serif" font-size="12">Non-extractable AES-256-GCM</text>
+    <text x="20" y="80" fill="#71717a" font-family="sans-serif" font-size="11">Ephemeral per-tab session key</text>
+    <text x="20" y="100" fill="#10b981" font-family="sans-serif" font-size="11" font-weight="600">✓ Sealed in Memory</text>
+
+    <!-- Card 2 -->
+    <rect x="280" y="0" width="250" height="120" rx="8" fill="#11111a" stroke="#252538" stroke-width="1"/>
+    <text x="300" y="35" fill="#a855f7" font-family="sans-serif" font-size="14" font-weight="700">💾 RAM-Only Storage</text>
+    <text x="300" y="60" fill="#a1a1aa" font-family="sans-serif" font-size="12">SQLite / LevelDB in Memory</text>
+    <text x="300" y="80" fill="#71717a" font-family="sans-serif" font-size="11">getStoragePath() === null</text>
+    <text x="300" y="100" fill="#10b981" font-family="sans-serif" font-size="11" font-weight="600">✓ Zero Disk Commits</text>
+
+    <!-- Card 3 -->
+    <rect x="560" y="0" width="250" height="120" rx="8" fill="#11111a" stroke="#252538" stroke-width="1"/>
+    <text x="580" y="35" fill="#10b981" font-family="sans-serif" font-size="14" font-weight="700">🧅 Tor Network Proxy</text>
+    <text x="580" y="60" fill="#a1a1aa" font-family="sans-serif" font-size="12">SOCKS5 with Remote DNS</text>
+    <text x="580" y="80" fill="#71717a" font-family="sans-serif" font-size="11">Fail-closed host resolution</text>
+    <text x="580" y="100" fill="#10b981" font-family="sans-serif" font-size="11" font-weight="600">✓ 127.0.0.1:9150 Active</text>
+  </g>
+
+  <!-- Bottom Status Bar -->
+  <rect x="20" y="695" width="1160" height="35" fill="#0c0c12"/>
+  <line x1="20" y1="695" x2="1180" y2="695" stroke="#1f1f2e" stroke-width="1"/>
+  <text x="45" y="718" fill="#71717a" font-family="sans-serif" font-size="11">Isolation: <tspan fill="#10b981" font-weight="600">EPHEMERAL RAM</tspan></text>
+  <text x="240" y="718" fill="#71717a" font-family="sans-serif" font-size="11">Disk Cache: <tspan fill="#ef4444" font-weight="600">DISABLED</tspan></text>
+  <text x="420" y="718" fill="#71717a" font-family="sans-serif" font-size="11">Tor Proxy: <tspan fill="#34d399" font-weight="600">127.0.0.1:9150 (SOCKS5)</tspan></text>
+  <text x="960" y="718" fill="#71717a" font-family="sans-serif" font-size="11">Audited By: <tspan fill="#fbbf24" font-weight="600">Forensic Auditor CLI</tspan></text>
+</svg>

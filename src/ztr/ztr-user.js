@@ -1,7 +1,10 @@
 // ============================================================================
-// Apricity Browser — Zero Trust Rendering (ZTR) Hardened Preferences
+// Apricity Browser — Zero Trust Rendering (ZTR) Reference Policy Specification
 // File: ztr-user.js
-// Target: Firefox ESR / Tor Browser Core Engine
+// Purpose: Conceptual security-policy baseline specification & test fixture.
+// Note: Apricity's desktop GUI currently runs on Electron/Chromium, enforcing
+// equivalent sandbox policies via Chromium command-line switches and Electron
+// session webPreferences. This file serves as the ZTR Reference Specification.
 // ============================================================================
 
 // ----------------------------------------------------------------------------

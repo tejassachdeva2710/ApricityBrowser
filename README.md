@@ -1,12 +1,21 @@
 ﻿# ☀️ Apricity Browser
 
+[![Version: v0.1.0](https://img.shields.io/badge/Version-v0.1.0-blue.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node: v18+](https://img.shields.io/badge/Node-v18%2B-green.svg)](https://nodejs.org/)
 [![Electron: v34](https://img.shields.io/badge/Electron-v34-blueviolet.svg)](https://www.electronjs.org/)
-[![Tests: 39 Passed](https://img.shields.io/badge/Tests-39%20Passed-success.svg)](tests/)
+[![Tests: 47 Passed](https://img.shields.io/badge/Tests-47%20Passed-success.svg)](tests/)
 [![ZTR: Ephemeral Isolation](https://img.shields.io/badge/ZTR-Ephemeral%20Isolation-orange.svg)](docs/threat-model.md)
 
 > *An experimental desktop privacy browser exploring ephemeral session isolation, disposable browser state, controlled network proxy routing, and empirically tested session destruction.*
+
+---
+
+## 📸 Interface & Architectural Overview
+
+<p align="center">
+  <img src="docs/images/browser_ui_layout.svg" alt="Apricity Browser UI Architecture" width="95%"/>
+</p>
 
 ---
 
@@ -60,7 +69,9 @@ graph TD
     class TorNet,RemoteDNS,OnionRelay net;
 ```
 
-> **Architectural Boundary Note**: Webview web content (`document.cookie`, `localStorage`, `indexedDB`) executes on Chromium's native Blink engine in RAM partitions (`ephemeral-${UUID}`). It is isolated by Chromium partition engines and cleared via `clearStorageData()`. The `ZeroTrustRenderer` JavaScript layer is an application-level state machine and test abstraction; webview DOM traffic does not pass through the ZTR JavaScript WebCrypto wrapper.
+> **Architectural Boundary Note**: Webview web content (`document.cookie`, `localStorage`, `indexedDB`, `sessionStorage`) executes on Chromium's native Blink engine in RAM partitions (`ephemeral-${UUID}`). It is isolated by Chromium partition engines and cleared via `clearStorageData()`. The `ZeroTrustRenderer` JavaScript layer is an application-level state machine and test abstraction; webview DOM traffic does not pass through the ZTR JavaScript WebCrypto wrapper.
+>
+> **Note on Gecko Preference Specification**: `src/ztr/ztr-user.js` and `ZTRPrefs.mjs` define a reference hardening policy derived from Gecko/Firefox privacy profiles. Electron/Chromium implements its own sandboxing through Chromium switches (`--disable-gpu`, etc.) and `webPreferences` (`contextIsolation: true`, `nodeIntegration: false`). `ztr-user.js` is retained as a reference specification test fixture.
 
 ---
 
@@ -73,10 +84,10 @@ Apricity evaluates all security properties against empirical test evidence:
 | **Session Identity Isolation** | **VERIFIED** | Verified by `test_adversarial_isolation.mjs` (UUID v4 generation and non-overlapping partition strings). |
 | **Application Storage Isolation** | **VERIFIED** | Verified by `test_adversarial_isolation.mjs` (cross-tab storage separation across cookies, storage, indexedDB, cache). |
 | **Cryptographic Key Separation** | **VERIFIED** | Verified by `test_adversarial_isolation.mjs` (AES-GCM authentication tag mismatch rejects cross-session reads). |
-| **Session Destruction Lifecycle** | **VERIFIED** | Verified by `test_ztr_lifecycle.mjs` (vault key dereferencing and state invalidation). |
-| **Chromium Native Partition Storage** | **PARTIALLY VERIFIED** | Verified via partition configuration; live Blink DOM storage isolation requires live Electron GUI execution. |
+| **Session Destruction Lifecycle** | **VERIFIED** | Verified by `test_ztr_lifecycle.mjs` & `test_electron_live.mjs` (vault key dereferencing and partition teardown). |
+| **Chromium Native Partition Storage** | **VERIFIED** | Verified by `test_electron_live.mjs` (RAM-only partition allocation, cross-renderer cookie/localStorage/IndexedDB isolation). |
 | **Forensic Filesystem Absence** | **VERIFIED** *(Scanned Surface)* | Verified by `npm run forensic` (deep binary scan of 45 runtime files in `userData` detected 0 residual canaries). |
-| **Default Permission Denial** | **VERIFIED** *(API Layer)* | Verified by `test_adversarial_isolation.mjs` (`setPermissionRequestHandler` returns `false` by default). |
+| **Default Permission Denial** | **VERIFIED** *(API Layer)* | Verified by `test_adversarial_isolation.mjs` & `test_electron_live.mjs` (`setPermissionRequestHandler` returns `false` by default). |
 | **Physical RAM & Heap Zeroization** | **NOT PROVIDED** | JS GC frees heap references for reuse; it does not physically zero deallocated memory (`UNVERIFIED_V8_HEAP_RAW_INACCESSIBLE`). |
 | **Protection from Memory Dumpers** | **NOT PROVIDED** | Non-extractable WebCrypto keys can still be extracted by local process debuggers or root malware. |
 | **Absolute Anonymity via Tor** | **NOT PROVIDED** | Tor SOCKS5 proxy provides network pseudonymity, not mathematical anonymity against traffic correlation or fingerprinting. |
@@ -114,11 +125,17 @@ npm run forensic -- --md --verbose
 
 ## 🧪 Automated Testing
 
-Run the automated test suites covering lifecycle state management, adversarial isolation, and binary scanner precision:
+Run the automated test suites covering lifecycle state management, adversarial isolation, live Electron execution, and binary scanner precision:
 
 ```bash
-# Run all core test suites (Lifecycle + Adversarial + Forensic Auditor)
+# Run core test suites (Lifecycle + Adversarial + Forensic Auditor)
 npm test
+
+# Run live Electron & Chromium runtime verification harness
+npm run test:electron
+
+# Run all test suites including scanner stress and challenger suites
+npm run test:all
 
 # Run specific test suites
 npm run test:lifecycle      # ZTR in-memory engine and preferences tests
@@ -134,9 +151,12 @@ npm run test:stress         # Challenger adversarial residue injection tests
 
 For detailed technical specifications, threat models, and methodology papers:
 
+* [**External Security Review & Claims Table**](docs/security-review.md): Final reviewer-oriented security evaluation matrix.
 * [**Threat Model & Security Architecture**](docs/threat-model.md): Assets, threat actors, 6 security boundaries, and comprehensive threat specification.
 * [**Security Properties Specification**](docs/security-properties.md): Formal breakdown of guaranteed vs non-guaranteed isolation properties.
 * [**Forensic Audit Methodology**](docs/forensic-methodology.md): The 6-layer deletion continuum, SSD wear leveling (FTL), OS paging, NTFS journaling, and justification taxonomy.
+* [**Release Notes v0.1.0**](docs/release-notes-0.1.0.md): Public experimental release summary.
+* [**Changelog**](CHANGELOG.md): Historical record of versions and architectural additions.
 
 ---
 
@@ -153,7 +173,7 @@ For detailed technical specifications, threat models, and methodology papers:
 
 Realistic future milestones based on the current architecture:
 
-* [ ] **Live Electron Chromium Test Harness**: Automated end-to-end Blink DOM storage testing in headless Electron windows.
+* [x] **Live Electron Chromium Test Harness**: Automated end-to-end Blink DOM storage testing in headless Electron windows.
 * [ ] **Per-Tab Tor Stream Isolation**: Dynamically generate unique SOCKS authentication credentials (`IsolateSOCKSAuth`) per tab session to ensure isolated Tor circuit paths.
 * [ ] **Native Memory Zeroization Addon**: Implement a lightweight C++ Node.js addon using platform-specific memory wipers (`SecureZeroMemory` / `explicit_bzero`) for cryptographic buffers.
 * [ ] **Automated Tor Daemon Lifecycle**: Integrated cross-platform child process supervisor for standalone Tor binary initialization and teardown.
@@ -182,7 +202,10 @@ npm start
 # 4. Run automated test suites
 npm test
 
-# 5. Run the forensic auditor
+# 5. Run the live Electron verification harness
+npm run test:electron
+
+# 6. Run the forensic auditor
 npm run forensic
 ```
 
