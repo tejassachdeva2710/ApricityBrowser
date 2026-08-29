@@ -1,17 +1,19 @@
-{
+﻿{
   "name": "apricity-browser-ztr",
   "version": "1.0.0",
-  "description": "Apricity Browser — Standalone Zero Trust Rendering Desktop Web Browser",
+  "description": "Apricity Browser — Experimental Ephemeral Session Desktop Browser",
   "main": "src/app/main.mjs",
   "type": "module",
   "scripts": {
+    "start": "electron .",
+    "demo:ztr": "node src/ztr/ZTRLauncher.mjs",
     "test": "node tests/test_ztr_lifecycle.mjs && node tests/test_adversarial_isolation.mjs && node tests/test_forensic_auditor.mjs",
     "test:lifecycle": "node tests/test_ztr_lifecycle.mjs",
     "test:adversarial": "node tests/test_adversarial_isolation.mjs",
     "test:forensic": "node tests/test_forensic_auditor.mjs",
-    "forensic": "node src/forensics/cli.mjs",
-    "start": "node src/ztr/ZTRLauncher.mjs",
-    "launch": "electron ."
+    "test:scanner": "node tests/test_adversarial_scanner.mjs",
+    "test:stress": "node tests/test_challenger_forensic_stress.mjs",
+    "forensic": "node src/forensics/cli.mjs"
   },
   "keywords": [
     "browser",
@@ -19,9 +21,10 @@
     "zero-trust",
     "privacy",
     "electron",
-    "apricity"
+    "apricity",
+    "ephemeral"
   ],
-  "author": "Apricity Project",
+  "author": "Tejas Sachdeva & Apricity Browser Contributors",
   "license": "MIT",
   "devDependencies": {
     "electron": "^34.5.8"
