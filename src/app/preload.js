@@ -5,6 +5,19 @@ contextBridge.exposeInMainWorld('apricityAPI', {
   // Tab management
   openTab:  (url)   => ipcRenderer.invoke('ztr:open-tab', url),
   closeTab: (tabId) => ipcRenderer.invoke('ztr:close-tab', tabId),
+  
+  // Navigation & View control
+  navigate: (tabId, url) => ipcRenderer.send('ztr:navigate', tabId, url),
+  goBack: (tabId) => ipcRenderer.send('ztr:go-back', tabId),
+  goForward: (tabId) => ipcRenderer.send('ztr:go-forward', tabId),
+  reload: (tabId) => ipcRenderer.send('ztr:reload', tabId),
+  switchTab: (tabId) => ipcRenderer.send('ztr:switch-tab', tabId),
+  updateBounds: (bounds) => ipcRenderer.send('ztr:update-bounds', bounds),
+
+  // WebContents events
+  onTabDidNavigate: (callback) => {
+    ipcRenderer.on('tab:did-navigate', (_event, data) => callback(data));
+  },
 
   // Window controls (frameless window)
   windowControls: {
@@ -13,11 +26,10 @@ contextBridge.exposeInMainWorld('apricityAPI', {
     close:    () => ipcRenderer.send('window:close'),
   },
 
-  // Pull-based: renderer calls this at startup to get current Tor state
+  // Tor
   getTorStatus: () => ipcRenderer.invoke('tor:get-status'),
-
-  // Push-based: main notifies renderer when Tor connects
   onTorStatus: (callback) => {
     ipcRenderer.on('tor:status', (_event, data) => callback(data));
   }
 });
+

@@ -15,27 +15,27 @@ This document specifies the actual security and isolation properties provided by
    * Partitions are configured with in-memory caching (`{ cache: false }`), and `disable-http-cache` / `disk-cache-size: 1` command-line switches instruct Chromium to avoid standard disk caching.
    * *Limitation*: This represents application configuration and runtime unlinking; it does not prove physical absence of RAM artifacts or prevent OS kernel paging.
 
-2. **Default Permission Denial**:
+1. **Default Permission Denial**:
    * Both `session.defaultSession` and tab-specific ephemeral sessions enforce a strict default-deny permission handler (`setPermissionRequestHandler((_wc, _perm, cb) => cb(false))`).
    * Standard Web API permission prompts (geolocation, notifications, media/camera/microphone, clipboard access, external protocols) are denied by default at the session layer.
 
-3. **In-Memory Cryptographic Separation (`ZTRCryptoVault`)**:
+2. **In-Memory Cryptographic Separation (`ZTRCryptoVault`)**:
    * Ephemeral AES-256-GCM keys (256-bit) are generated per tab session via the WebCrypto API with `extractable: false`.
    * Cryptographic operations are isolated per session UUID. Ciphertext generated under Session A's key cannot be decrypted under Session B's key (guaranteed by AES-GCM authentication tag verification).
    * Key references are removed from the in-memory vault Map upon session close, preventing subsequent encryption/decryption requests for that session ID.
 
-4. **Fail-Closed Tor Proxy Configuration**:
+3. **Fail-Closed Tor Proxy Configuration**:
    * Network requests in Electron sessions are configured to route through a local Tor SOCKS5 proxy (`socks5://127.0.0.1:9150` or `9050`).
    * Chromium host resolver rules (`MAP * ~NOTFOUND , EXCLUDE 127.0.0.1`) prevent the browser from using the host OS DNS resolver for external hostnames.
    * If the Tor SOCKS proxy is unreachable or down, requests fail closed with connection errors rather than falling back to unproxied clearnet.
 
-5. **Tab Lifecycle State Invalidation**:
+4. **Tab Lifecycle State Invalidation**:
    * Closing a tab purges its state from `activeTabs`, deletes the in-memory storage store, removes its key from the vault, and issues `clearStorageData()` / `clearCache()` to the Electron partition.
    * Subsequent API operations on closed tab IDs are explicitly rejected at the application level.
 
 ---
 
-## 2. What the Test Suite Empirically Verifies
+## 1. What the Test Suite Empirically Verifies
 
 The automated test suites (`npm test` and `npm run forensic`) verify:
 
@@ -60,37 +60,37 @@ The automated test suites (`npm test` and `npm run forensic`) verify:
 
 ---
 
-## 3. What Apricity Does NOT Guarantee (Non-Guarantees)
+## 2. What Apricity Does NOT Guarantee (Non-Guarantees)
 
 1. **Physical RAM & Heap Zeroization**:
    * Dereferencing JavaScript objects and invoking `globalThis.gc()` marks memory as reclaimable for the V8 heap allocator; it does **not** physically zero or overwrite host DRAM bytes.
    * Forensic physical memory inspection of a compromised host or process memory dumping can recover unallocated heap fragments.
 
-2. **Absolute Anonymity or Circuit Stream Isolation**:
+1. **Absolute Anonymity or Circuit Stream Isolation**:
    * Routing network requests through Tor SOCKS5 provides network pseudonymity, but does **not** guarantee absolute anonymity against browser fingerprinting, application-layer deanonymization, or global passive traffic correlation.
    * SOCKS5 proxy routing at port 9150/9050 shares the Tor daemon's circuit pool across tabs unless per-session stream isolation is explicitly configured.
 
-3. **Protection Against Host / Process-Level Compromise**:
+2. **Protection Against Host / Process-Level Compromise**:
    * WebCrypto `extractable: false` is an API-level barrier enforced by the JavaScript runtime. It does **not** protect cryptographic keys or memory against a local debugger, memory dumper, root malware, or kernel-level process inspection.
 
-4. **Complete Erasure of OS-Level Artifacts**:
+3. **Complete Erasure of OS-Level Artifacts**:
    * A clean filesystem scan proves only that known canary tokens were not found within the scanned directory tree.
    * It does **not** guarantee the absence of OS-level artifacts in NTFS journals (`$LogFile`, `$UsnJrnl`), Windows Prefetch, crash minidumps, or virtual memory paging (`pagefile.sys`).
 
-5. **Solid-State Drive (SSD) Physical Cell Erasure**:
+4. **Solid-State Drive (SSD) Physical Cell Erasure**:
    * Due to Flash Translation Layer (FTL) wear-leveling, overwriting or unlinking files in user-space does not erase physical NAND flash cells.
 
 ---
 
-## 4. Known Architectural Limitations
+## 3. Known Architectural Limitations
 
 1. **ZTR Storage Simulator vs Chromium Webview Storage**:
    * The encrypted storage store in `ZeroTrustRenderer.mjs` (`this._ephemeralStorageStores`) is an in-memory state simulator and test abstraction.
    * Web browsing inside `<webview>` elements uses Electron's native Chromium storage engine isolated by partition names (`partition="ephemeral-UUID"`). Webview DOM storage (e.g. `document.cookie` or `localStorage` set by live web pages) does **not** route through `ZeroTrustRenderer`'s JavaScript WebCrypto encryption layer.
 
-2. **Electron `<webview>` Sandbox Limitation**:
+1. **Electron `<webview>` Sandbox Limitation**:
    * The main `BrowserWindow` runs with `sandbox: false` because Electron requires this setting for `<webview>` tag management. Web content runs in isolated guest processes, but the shell process does not have Chromium sandbox restrictions.
 
-3. **Gecko vs Chromium Preferences Disconnect**:
+2. **Gecko vs Chromium Preferences Disconnect**:
    * `src/ztr/ztr-user.js` and `ZTRPrefs.mjs` define and validate Firefox/Gecko security preferences (such as `security.sandbox.content.level: 9` and `fission.autostart: true`).
    * Apricity executes on Chromium/Electron, which does not read or apply Gecko `user_pref()` settings.

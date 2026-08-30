@@ -1,12 +1,13 @@
 
-import { app, BrowserWindow, ipcMain, session } from 'electron';
+import { app, BrowserWindow, ipcMain, session, WebContentsView } from 'electron';
+import { randomUUID } from 'crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { spawn } from 'child_process';
 import net from 'net';
 import fs from 'fs';
 import os from 'os';
-import { ZeroTrustRenderer } from '../ztr/ZeroTrustRenderer.mjs';
+
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -77,7 +78,10 @@ let mainWindow = null;
 let torProcess = null;
 let torConnected = false;   // global source-of-truth for Tor status
 let activeTorPort = 9150;    // whichever port actually responds
-const ztr = new ZeroTrustRenderer();
+// Map<tabId, { sessionUUID, partitionId, view: WebContentsView, url: string }>
+const activeTabs = new Map();
+let webviewBounds = { x: 0, y: 0, width: 0, height: 0 };
+let activeTabId = null;
 let nextTabId = 1;
 
 async function applyTorProxy(sess) {
@@ -169,8 +173,8 @@ async function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
-      webviewTag: true,      // Required for <webview> content rendering
-      sandbox: false,        // MUST be false — sandbox breaks webviewTag
+      // webviewTag removed for WebContentsView
+      sandbox: true,         // Restored OS-level sandbox
     }
   });
 
@@ -197,39 +201,134 @@ ipcMain.handle('tor:get-status', () => ({ connected: torConnected, port: activeT
 // ── ZTR Tab Open ──
 ipcMain.handle('ztr:open-tab', async (_event, targetUrl) => {
   const tabId = `tab-${nextTabId++}`;
-  const tabState = await ztr.openTab(tabId, targetUrl || 'newtab');
-
-  // Create isolated ephemeral session partition (no disk cache)
-  const partitionId = `ephemeral-${tabState.sessionUUID}`;
+  const sessionUUID = randomUUID();
+  const partitionId = `ephemeral-${sessionUUID}`;
   const ephemSession = session.fromPartition(partitionId, { cache: false });
+  
   await applyTorProxy(ephemSession);
   ephemSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
 
+  const view = new WebContentsView({
+    webPreferences: {
+      session: ephemSession,
+      nodeIntegration: false,
+      contextIsolation: true,
+      sandbox: true
+    }
+  });
+  
+  view.webContents.on('did-navigate', (e, url) => {
+    if (url.startsWith('data:')) return;
+    activeTabs.get(tabId).url = url;
+    mainWindow.webContents.send('tab:did-navigate', { tabId, url });
+  });
+  view.webContents.on('did-navigate-in-page', (e, url) => {
+    if (url.startsWith('data:')) return;
+    activeTabs.get(tabId).url = url;
+    mainWindow.webContents.send('tab:did-navigate', { tabId, url });
+  });
+  view.webContents.on('did-fail-load', (e, errorCode, errorDescription) => {
+    if (errorCode === -3) return;
+    const isTorError = errorCode === -105 || errorCode === -130;
+    const html = encodeURIComponent(`<!DOCTYPE html><html>
+      <head><style>
+        body{font-family:Inter,system-ui,sans-serif;display:flex;align-items:center;justify-content:center;
+          height:100vh;margin:0;background:#faf9ff;color:#111827}
+        .box{text-align:center;max-width:400px}
+        h2{color:#6d28d9;margin-bottom:10px;font-size:20px}
+        p{color:#6b7280;font-size:14px;line-height:1.6;margin-bottom:8px}
+      </style></head><body><div class="box">
+        ${isTorError ? '<p>Make sure Tor Browser is running, or wait for Tor to fully bootstrap.</p>' : '<p>Load failed.</p>'}
+      </div></body></html>`);
+    view.webContents.loadURL(`data:text/html,${html}`);
+  });
+
+  activeTabs.set(tabId, { sessionUUID, partitionId, view, url: targetUrl || 'newtab' });
+  
+  if (targetUrl && targetUrl !== 'newtab') {
+    view.webContents.loadURL(targetUrl);
+  }
+  
   return {
-    tabId: tabState.tabId,
-    sessionUUID: tabState.sessionUUID,
+    tabId,
+    sessionUUID,
     partition: partitionId,
-    url: tabState.url,
-    status: tabState.status
+    url: targetUrl || 'newtab',
+    status: 'sealed'
   };
 });
 
 // ── ZTR Tab Close ──
 ipcMain.handle('ztr:close-tab', async (_event, tabId) => {
   try {
-    const activeTab = ztr.activeTabs.get(tabId);
-    if (!activeTab) return { success: false };
-    const partitionId = `ephemeral-${activeTab.sessionUUID}`;
-    const destroySummary = await ztr.closeTab(tabId);
+    const tabData = activeTabs.get(tabId);
+    if (!tabData) return { success: false };
+    
+    if (activeTabId === tabId) {
+      mainWindow.contentView.removeChildView(tabData.view);
+      activeTabId = null;
+    }
+    
+    const partitionId = tabData.partitionId;
+    activeTabs.delete(tabId);
+    
+    tabData.view.webContents.close();
+    
     try {
       const s = session.fromPartition(partitionId);
       await s.clearStorageData();
       await s.clearCache();
     } catch (_) { }
-    return { success: true, tabId, destroySummary };
+    return { success: true, tabId };
   } catch (err) {
     return { success: false, error: err.message };
   }
+});
+
+ipcMain.on('ztr:update-bounds', (e, bounds) => {
+  webviewBounds = bounds;
+  if (activeTabId && activeTabs.has(activeTabId)) {
+    activeTabs.get(activeTabId).view.setBounds(bounds);
+  }
+});
+
+ipcMain.on('ztr:switch-tab', (e, tabId) => {
+  if (activeTabId && activeTabs.has(activeTabId)) {
+    mainWindow.contentView.removeChildView(activeTabs.get(activeTabId).view);
+  }
+  activeTabId = tabId;
+  const tabData = activeTabs.get(tabId);
+  if (tabData && tabData.url !== 'newtab') {
+    mainWindow.contentView.addChildView(tabData.view);
+    tabData.view.setBounds(webviewBounds);
+  }
+});
+
+ipcMain.on('ztr:navigate', (e, tabId, url) => {
+  const tabData = activeTabs.get(tabId);
+  if (tabData) {
+    tabData.url = url;
+    if (activeTabId === tabId && !mainWindow.contentView.children.includes(tabData.view)) {
+      mainWindow.contentView.addChildView(tabData.view);
+      tabData.view.setBounds(webviewBounds);
+    }
+    tabData.view.webContents.loadURL(url);
+  }
+});
+
+ipcMain.on('ztr:go-back', (e, tabId) => {
+  const tabData = activeTabs.get(tabId);
+  if (tabData && tabData.view.webContents.canGoBack()) tabData.view.webContents.goBack();
+});
+
+ipcMain.on('ztr:go-forward', (e, tabId) => {
+  const tabData = activeTabs.get(tabId);
+  if (tabData && tabData.view.webContents.canGoForward()) tabData.view.webContents.goForward();
+});
+
+ipcMain.on('ztr:reload', (e, tabId) => {
+  const tabData = activeTabs.get(tabId);
+  if (tabData) tabData.view.webContents.reload();
 });
 
 // ── App Lifecycle ──

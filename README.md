@@ -41,32 +41,21 @@ graph TD
     
     subgraph Browser Shell & IPC
         Shell -->|Manages Tab Lifecycle| UI[UI Controller & Timer HUD]
-        Shell -->|Generates Session UUID| ZTR[Zero Trust Renderer Core]
     end
 
-    subgraph Boundary 1 & 4: ZTR State & Cryptography
-        ZTR -->|extractable: false| Vault[(WebCrypto Vault<br/>AES-256-GCM Keys)]
-        ZTR -->|Application State| SimStore[(In-Memory Simulator Store<br/>Ciphertext Maps)]
+    subgraph Native Chromium Isolation
+        Shell -->|Creates WebContentsView| WC[Chromium WebContentsView]
+        WC -->|Binds to Partition| Part[(Ephemeral Session Partition<br/>UUID Identifier)]
+        Part -->|Handles Native Storage| DOM[Cookies / LocalStorage / IndexedDB]
     end
 
-    subgraph Boundary 2: Chromium Webview Isolation
-        Shell -->|Instantiates partition| Part[Electron In-Memory Partition<br/>ephemeral-UUID / cache: false]
-        Part -->|Blink Engine RAM| Webview[Chromium Webview Guest Renderer]
-        Webview -->|DOM Storage / Cookies| BlinkRAM[(Chromium SQLite & LevelDB<br/>In-Memory RAM Engines)]
+    subgraph Boundary Protection
+        WC -->|sandbox: true| SBox[OS-Level Sandbox]
+        WC -->|nodeIntegration: false| IPC[IPC Restrictions]
     end
 
-    subgraph Boundary 5: Network Routing
-        Part -->|Proxy: socks5://127.0.0.1:9150| TorNet[Tor SOCKS5 Daemon]
-        Part -->|host-resolver-rules| RemoteDNS[Remote SOCKS5 DNS Delegation]
-        TorNet --> OnionRelay[Tor Onion Relays / .onion Services]
-    end
-
-    classDef core fill:#ede9fe,stroke:#7c3aed,stroke-width:2px;
-    classDef storage fill:#dbeafe,stroke:#2563eb,stroke-width:2px;
-    classDef net fill:#dcfce7,stroke:#16a34a,stroke-width:2px;
-    class Shell,ZTR,UI core;
-    class Vault,SimStore,Part,BlinkRAM storage;
-    class TorNet,RemoteDNS,OnionRelay net;
+    Shell -->|Spawns / Routes| Tor[Tor Daemon SOCKS5 Proxy]
+    WC -->|Proxy Configured| Tor
 ```
 
 > **Architectural Boundary Note**: Webview web content (`document.cookie`, `localStorage`, `indexedDB`, `sessionStorage`) executes on Chromium's native Blink engine in RAM partitions (`ephemeral-${UUID}`). It is isolated by Chromium partition engines and cleared via `clearStorageData()`. The `ZeroTrustRenderer` JavaScript layer is an application-level state machine and test abstraction; webview DOM traffic does not pass through the ZTR JavaScript WebCrypto wrapper.

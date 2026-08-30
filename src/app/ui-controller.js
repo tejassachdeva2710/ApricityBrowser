@@ -264,17 +264,13 @@ document.addEventListener('DOMContentLoaded', () => {
   // ═══════════════════════════════
   // TAB SWITCHING
   // ═══════════════════════════════
-  function switchActiveTab(tabId) {
-    if (!tabs.has(tabId)) return;
+    function switchActiveTab(tabId) {
+    if (activeTabId === tabId) return;
 
     // Deactivate current
     if (activeTabId && tabs.has(activeTabId)) {
       const cur = tabs.get(activeTabId);
       cur.tabEl?.classList.remove('active');
-      if (cur.webview) {
-        cur.webview.classList.remove('active');
-        cur.webview.classList.add('inactive');
-      }
     }
 
     activeTabId = tabId;
@@ -288,13 +284,10 @@ document.addEventListener('DOMContentLoaded', () => {
     } else {
       newTabPage.classList.add('hidden');
       webviewArea.classList.add('visible');
-      if (next.webview) {
-        next.webview.classList.remove('inactive');
-        next.webview.classList.add('active');
-      }
       urlInput.value = next.url;
     }
 
+    window.apricityAPI?.switchTab?.(tabId);
     syncTimerDisplay();
     renderActiveTabsList();
   }
@@ -302,19 +295,12 @@ document.addEventListener('DOMContentLoaded', () => {
   // ═══════════════════════════════
   // NAVIGATION (KEY FIX: dom-ready before loadURL)
   // ═══════════════════════════════
-  async function navigateTo(url) {
+    async function navigateTo(url) {
     if (!url) return;
 
-    // No active tab → open a new one
+    // No active tab -> open a new one
     if (!activeTabId || !tabs.has(activeTabId)) {
       await createNewTab(url);
-      // After tab created, navigate immediately
-      const rec = tabs.get(activeTabId);
-      if (rec) {
-        rec.url     = url;
-        rec.isNewTab = false;
-        launchWebview(rec, url);
-      }
       return;
     }
 
@@ -324,85 +310,20 @@ document.addEventListener('DOMContentLoaded', () => {
     newTabPage.classList.add('hidden');
     webviewArea.classList.add('visible');
 
-    if (!rec.webview) {
-      launchWebview(rec, url);
-    } else {
-      rec.webview.loadURL(url);
-      urlInput.value = url;
-    }
-  }
-
-  function launchWebview(rec, url) {
-    const wv = document.createElement('webview');
-    wv.setAttribute('partition', rec.partition);
-    wv.setAttribute('allowpopups', '');
-    wv.classList.add('inactive');
-    wv.src = url;
-    webviewArea.appendChild(wv);
-    rec.webview = wv;
-
-    // Sync address bar
-    wv.addEventListener('did-navigate', (e) => {
-      if (e.url.startsWith('data:')) return;
-      rec.url = e.url;
-      if (activeTabId === rec.tabId) urlInput.value = e.url;
-    });
-    wv.addEventListener('did-navigate-in-page', (e) => {
-      if (e.url.startsWith('data:')) return;
-      rec.url = e.url;
-      if (activeTabId === rec.tabId) urlInput.value = e.url;
-    });
-
-    // Sync tab title
-    wv.addEventListener('page-title-updated', (e) => {
-      rec.title = e.title;
-      const el = rec.tabEl?.querySelector('.tab-title-text');
-      if (el) el.textContent = e.title.substring(0, 28);
-      const fav = rec.tabEl?.querySelector('.tab-favicon');
-      if (fav) fav.textContent = e.title.charAt(0).toUpperCase();
-    });
-
-    // Handle load failures gracefully — inject error page instead of black screen
-    wv.addEventListener('did-fail-load', (e) => {
-      if (e.errorCode === -3) return; // -3 = aborted (user navigated away), not real error
-      console.warn(`[Webview] Load failed: ${e.errorDescription} (${e.errorCode})`);
-      const isTorError = e.errorCode === -105 || e.errorCode === -130;
-      const html = encodeURIComponent(`<!DOCTYPE html><html>
-        <head><style>
-          body{font-family:Inter,system-ui,sans-serif;display:flex;align-items:center;justify-content:center;
-            height:100vh;margin:0;background:#faf9ff;color:#111827}
-          .box{text-align:center;max-width:400px}
-          h2{color:#6d28d9;margin-bottom:10px;font-size:20px}
-          p{color:#6b7280;font-size:14px;line-height:1.6;margin-bottom:8px}
-          .code{display:inline-block;font-family:monospace;background:#ede9fe;padding:3px 8px;border-radius:6px;font-size:12px}
-        </style></head><body><div class="box">
-          <h2>🧅 Connection Failed</h2>
-          <p>${e.errorDescription}</p>
-          <p><span class="code">Error ${e.errorCode}</span></p>
-          ${isTorError ? '<p>Make sure Tor Browser is running, or wait for Tor to fully bootstrap.</p>' : ''}
-        </div></body></html>`);
-      wv.loadURL(`data:text/html,${html}`);
-    });
-
-    // Activate this webview, deactivate others
-    webviewArea.querySelectorAll('webview').forEach(w => {
-      w.classList.remove('active');
-      w.classList.add('inactive');
-    });
-    wv.classList.remove('inactive');
-    wv.classList.add('active');
+    window.apricityAPI?.navigate?.(activeTabId, url);
     urlInput.value = url;
   }
+
+  
 
   // ═══════════════════════════════
   // TAB DESTRUCTION (3-Phase ZTR Wipe)
   // ═══════════════════════════════
-  function destroyTab(tabId) {
+    function destroyTab(tabId) {
     const rec = tabs.get(tabId);
     if (!rec) return;
 
     // 1. Immediately remove DOM elements & local state for INSTANT visual response
-    rec.webview?.remove();
     rec.tabEl?.remove();
     tabs.delete(tabId);
 
@@ -456,10 +377,35 @@ document.addEventListener('DOMContentLoaded', () => {
     if (url) await navigateTo(url);
   });
 
-  // Nav buttons
-  btnBack.addEventListener('click',   () => { const r = tabs.get(activeTabId); if (r?.webview?.canGoBack())    r.webview.goBack(); });
-  btnFwd.addEventListener('click',    () => { const r = tabs.get(activeTabId); if (r?.webview?.canGoForward()) r.webview.goForward(); });
-  btnReload.addEventListener('click', () => { tabs.get(activeTabId)?.webview?.reload(); });
+    // Nav buttons
+  btnBack.addEventListener('click',   () => { if (activeTabId) window.apricityAPI?.goBack?.(activeTabId); });
+  btnFwd.addEventListener('click',    () => { if (activeTabId) window.apricityAPI?.goForward?.(activeTabId); });
+  btnReload.addEventListener('click', () => { if (activeTabId) window.apricityAPI?.reload?.(activeTabId); });
+
+  // Handle IPC Navigation events from WebContentsView
+  window.apricityAPI?.onTabDidNavigate?.((data) => {
+    const rec = tabs.get(data.tabId);
+    if (rec) {
+      rec.url = data.url;
+      if (activeTabId === data.tabId) urlInput.value = data.url;
+    }
+  });
+
+  // Observe webviewArea resizing to update WebContentsView bounds
+  const updateBounds = () => {
+    if (webviewArea.classList.contains('visible')) {
+      const rect = webviewArea.getBoundingClientRect();
+      window.apricityAPI?.updateBounds?.({
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height)
+      });
+    }
+  };
+  window.addEventListener('resize', updateBounds);
+  const observer = new MutationObserver(updateBounds);
+  observer.observe(webviewArea, { attributes: true, attributeFilter: ['class', 'style'] });
 
   // Timer controls
   btnAddTime.addEventListener('click', () => {
