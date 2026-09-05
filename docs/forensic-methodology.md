@@ -1,36 +1,35 @@
-﻿# Apricity Browser — Forensic Audit Methodology Specification
+# Apricity Browser — Forensic Audit Methodology Specification
 
-**Document Version:** 1.1.0  
+**Document Version:** 2.0.0  
 **Classification:** Security Architecture & Forensic Verification Standard  
 **Companion Document:** [Threat Model & Security Architecture](threat-model.md)  
-**Target Engine:** Apricity Zero Trust Rendering (ZTR) Core / Electron Chromium
+**Target Engine:** Electron Main Process / Chromium WebContentsView / Ephemeral Partitions
 
 ---
 
-## 1. Overview & Threat Model
+## 1. Overview & Core Forensic Principle
 
-Apricity Browser provides ephemeral desktop web browsing through **Zero Trust Rendering (ZTR)**. Its security architecture combines per-tab ephemeral session partitions, in-memory cryptographic isolation, Tor SOCKS5 network routing, and automated self-destruct teardown lifecycles.
+Apricity Browser provides ephemeral desktop web browsing through native **Chromium WebContentsView process isolation** paired with ephemeral session partitions (`session.fromPartition('ephemeral-UUID', { cache: false })`), Tor SOCKS5 network routing, and automated self-destruct teardown lifecycles.
 
-However, in computer forensics and adversarial analysis, privacy claims such as "zero disk residue", "unrecoverable browsing", or "complete physical wipe" frequently fail when examined against the physical realities of operating systems, solid-state flash memory controllers, and process memory managers.
+The previous prototype utilized an application-level cryptographic storage simulator (`ZeroTrustRenderer`). Following a comprehensive security audit, that simulator was eliminated. The browser and forensic auditor now operate entirely on real Chromium storage subsystems with OS-level sandboxing (`sandbox: true`).
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────┐
 │                               CORE FORENSIC PRINCIPLE                                   │
 ├─────────────────────────────────────────────────────────────────────────────────────────┤
-│ A clean canary scan means:                                                              │
-│ "The known test artifacts were not detected in the scanned locations."                  │
+│ The auditor verifies the absence of known test canaries from the filesystem surfaces it │
+│ scans after a real Chromium session is destroyed. It does not prove complete forensic   │
+│ absence from physical hardware.                                                         │
 │                                                                                         │
-│ It does NOT mean:                                                                       │
-│ "No forensic evidence exists anywhere on the machine or physical media."                │
-│                                                                                         │
-│ Filesystem silence does NOT prove forensic zeroization. An absence of reachable files   │
+│ Filesystem silence does NOT prove physical zeroization. An absence of reachable files   │
 │ in user-space directory traversals demonstrates only that operating system file pointers│
-│ have been unlinked. It does not prove that plaintext data has been purged from physical │
-│ NAND flash blocks, virtual memory paging files, kernel journals, or hardware buffers.   │
+│ and in-memory partition caches have been unlinked. It does not prove that plaintext data│
+│ has been purged from physical NAND flash blocks, virtual memory paging files, kernel    │
+│ journals, or hardware caches.                                                           │
 └─────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-The Apricity Forensic Artifact Auditor (`npm run forensic`) is an empirical testing subsystem built to systematically search for residual session artifacts, evaluate Apricity's destruction lifecycle, and report findings with absolute security honesty.
+The Apricity Forensic Artifact Auditor (`npm run forensic`) is an empirical testing subsystem that starts an actual Electron runtime, navigates an isolated `WebContentsView` to a controlled origin, writes deterministic high-entropy canaries into real Chromium storage (Cookies, LocalStorage, SessionStorage, IndexedDB, Cache Storage, Blob Storage), validates pre-destruction presence, executes the teardown lifecycle (`clearStorageData()`, `clearCache()`, view removal), and deep-scans candidate filesystem locations with binary pattern matchers.
 
 ---
 
@@ -42,11 +41,11 @@ To understand why application-level cleanup does not equal forensic eradication,
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │                       THE 6-LAYER DELETION CONTINUUM                        │
 ├─────────────────────────────────────────────────────────────────────────────┤
-│ 1. LOGICAL DELETION          │ Purging JavaScript Map keys & session state │
-│    (Controlled by Apricity)  │ WebCrypto key dereferencing in V8 isolate   │
+│ 1. LOGICAL DELETION          │ Purging Chromium session memory structures  │
+│    (Controlled by Apricity)  │ clearStorageData(), clearCache(), View drop │
 ├──────────────────────────────┼─────────────────────────────────────────────┤
 │ 2. FILESYSTEM DELETION       │ Unlinking file handles via OS APIs          │
-│    (Controlled by Apricity)  │ Calling clearStorageData() / clearCache()   │
+│    (Controlled by Apricity)  │ Ephemeral partitions allocate 0 disk dirs   │
 ├──────────────────────────────┼─────────────────────────────────────────────┤
 │ 3. OS MEMORY HANDLING        │ Kernel memory paging to pagefile.sys        │
 │    (Beyond App Control)      │ V8 unallocated heap slab retention          │
@@ -62,8 +61,8 @@ To understand why application-level cleanup does not equal forensic eradication,
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-1. **Logical Deletion**: Application-level reference dereferencing (e.g. `vault._vault.delete(sessionUUID)` and `_ephemeralStorageStores.delete(userContextId)`). *Apricity enforces this.*
-2. **Filesystem Deletion**: Operating system directory entry unlinking via standard system calls. *Apricity enforces this by verifying no partition directories exist under `%APPDATA%\...\Partitions`.*
+1. **Logical Deletion**: Application and Chromium renderer state dereferencing (`clearStorageData()`, `clearCache()`, detaching and destroying `WebContentsView`). *Apricity enforces this.*
+2. **Filesystem Deletion**: Operating system directory entry unlinking via standard system calls. *Apricity enforces this by verifying no partition directories exist on disk.*
 3. **OS-Level Memory Handling**: Under memory pressure, the OS Kernel Virtual Memory Manager can page process memory pages out of DRAM and write them into `pagefile.sys` or `swapfile.sys`. *Apricity cannot control OS virtual memory paging.*
 4. **Filesystem Journaling**: Modern journaled filesystems (such as NTFS on Windows or ext4 on Linux) record file creation, modification, and deletion transactions in system journals (`$LogFile`, `$UsnJrnl`). Transaction metadata remains until log rollover. *Apricity cannot purge OS filesystem journals from user-space.*
 5. **SSD Wear Leveling (Flash Translation Layer)**: NAND flash memory cannot overwrite bytes in place. The SSD controller writes modified blocks to fresh physical NAND cells and marks old blocks as stale. The stale blocks retain original plaintext data until asynchronous TRIM/garbage collection occurs. *Apricity cannot control SSD controller FTL behavior.*
@@ -71,129 +70,93 @@ To understand why application-level cleanup does not equal forensic eradication,
 
 ---
 
-## 3. Architectural Boundaries & Isolation Layers
+## 3. Real Chromium Lifecycle & Audit Architecture
 
-Apricity operates across four distinct architectural layers, each with separate storage mechanisms, lifecycle scopes, and forensic observables:
+Apricity structures its forensic auditor directly against the native Chromium architecture:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────────────────┐
-│                               APRICITY RUNTIME BOUNDARIES                               │
+│                               REAL CHROMIUM AUDIT FLOW                                  │
 ├─────────────────────────────────────────────────────────────────────────────────────────┤
 │                                                                                         │
-│  [BOUNDARY 1: ZTR In-Memory Simulator]                                                  │
-│  • Components: src/ztr/ZeroTrustRenderer.mjs, src/ztr/ZTRCryptoVault.mjs                │
-│  • Storage: In-memory JavaScript Map objects (_ephemeralStorageStores, _vault)          │
-│  • Security: WebCrypto AES-256-GCM non-extractable keys (extractable: false)             │
-│  • Lifecycle: 3-Phase cleanup on closeTab(tabId)                                        │
+│  [PHASE 1: Isolated Environment & Causal Harness Setup]                                 │
+│  • Allocates temporary userData directory via app.setPath('userData', tempDir)          │
+│  • Runtime assertion confirms Electron userData matches target scan roots               │
+│  • Uses disk-backed test partition (persist:forensic-audit-<UUID>) in isolated userData │
+│    to allow empirical observation of disk persistence and subsequent cleanup            │
+│  • Production Apricity continues to use ephemeral in-memory partitions                  │
 │                                                                                         │
-│  [BOUNDARY 2: Native Chromium Webview Storage Subsystem]                                │
-│  • Components: src/app/main.mjs, src/app/ui-controller.js, Electron <webview>           │
-│  • Storage: Chromium in-memory partitions (session.fromPartition('ephemeral-UUID'))     │
-│  • Engine: Blink SQLite CookieStore, LevelDB DOMStorage (RAM-only, getStoragePath=null) │
-│  • Destruction: Asynchronous session.clearStorageData() & session.clearCache()           │
+│  [PHASE 2: Real Chromium Session & Canary Injection]                                    │
+│  • Starts Electron runtime & local HTTP canary fixture                                  │
+│  • Creates sandboxed WebContentsView bound to the disk-backed forensic partition        │
+│  • Injects high-entropy canary tokens into real Blink/Chromium storage subsystems:       │
+│    - Cookies (document.cookie and session.cookies)                                      │
+│    - DOM localStorage                                                                   │
+│    - DOM sessionStorage                                                                 │
+│    - IndexedDB database records (IndexedDB LevelDB)                                     │
+│    - Cache Storage API cache responses (SimpleCache / Service Worker)                    │
+│    - Blob storage / Object URLs                                                         │
 │                                                                                         │
-│  [BOUNDARY 3: Host Operating System & Electron Main Process]                            │
-│  • Components: Node.js / Electron main process runtime                                  │
-│  • Filesystem: userData (%APPDATA%\apricity-browser-ztr), %LOCALAPPDATA%\Temp           │
-│  • Subdirectories: Code Cache, GPUCache, blob_storage, Crashpad                         │
-│  • OS Artifacts: Windows Prefetch, NTFS $LogFile/$MFT, pagefile.sys, crash minidumps    │
+│  [PHASE 3: Pre-Destruction Presence Validation & Pre-Scan]                              │
+│  • Reads back every canary token from the live Chromium session (Browser Pre-State)     │
+│  • Deep-scans userData before teardown to record physical disk presence (Fs Pre-State)  │
 │                                                                                         │
-│  [BOUNDARY 4: Tor SOCKS5 Network Subprocess]                                            │
-│  • Components: tor.exe child daemon, socks5://127.0.0.1:9150                            │
-│  • Storage: tor-data directory (%APPDATA%\apricity-browser-ztr\tor-data)                │
-│  • Artifacts: cached-microdesc-consensus, state, lock, Tor daemon RAM circuit tables    │
+│  [PHASE 4: Apricity Session Destruction Lifecycle]                                      │
+│  • Executes session.clearStorageData() & session.clearCache()                            │
+│  • Detaches WebContentsView from host window and destroys webContents                   │
+│  • Supports --abnormal flag to test unexpected termination without clearStorageData     │
+│                                                                                         │
+│  [PHASE 5: Deep Binary Filesystem Scan & Empty-Scan Guard]                              │
+│  • Multi-encoding binary scan (UTF-8, UTF-16LE, ASCII, hex) on exact same directory     │
+│  • Inspects SQLite files, LevelDB SSTables, and cache blobs                             │
+│  • Empty-Scan Guard: If Scanned Files = 0 or Bytes = 0, flags UNVERIFIED (never CLEAN)  │
+│                                                                                         │
+│  [PHASE 6: 4-State Causal Breakdown & Multi-Dimensional Matrix]                         │
+│  • Reports 4-state causal lifecycle per subsystem:                                      │
+│    Browser Pre-State | Filesystem Pre-State | Cleanup Method | Filesystem Post-State     │
+│  • Classifies each as VERIFIED CLEAN, FAIL, or UNVERIFIED with justification codes      │
 │                                                                                         │
 └─────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Critical Architectural Distinction: Simulator vs Native Webview
+---
 
-1. **`ZeroTrustRenderer.mjs` (Layer A)** is an in-memory cryptographic state machine simulator. It encrypts key-value items with WebCrypto AES-256-GCM and stores ciphertext in memory `Map` objects. It is evaluated directly in unit and adversarial test suites (`npm test`).
-2. **`<webview>` Web Content (Layer B)** runs directly on Chromium's native C++ Blink engine. Real DOM storage (`document.cookie`, `localStorage`, `indexedDB`) is managed by Chromium's in-memory partition engine (`ephemeral-${sessionUUID}`). Webview storage does **not** pass through the ZTR JavaScript WebCrypto wrapper.
-3. The forensic auditor tests **both** boundaries: it validates ZTR key destruction and in-memory map purging, while also performing binary disk sweeps across Chromium's runtime storage paths.
+## 4. Multi-Dimensional Verification Matrix
+
+The auditor evaluates 16 properties across 5 distinct dimensions:
+
+### Dimension 1: Chromium Native DOM Storage (Layer 1)
+- `DOM_COOKIE_STORAGE_AND_PURGE`: Cookies confirmed in Chromium session and not found in post-destruction filesystem scan.
+- `DOM_LOCALSTORAGE_STORAGE_AND_PURGE`: LocalStorage confirmed in Chromium session and not found in post-destruction filesystem scan.
+- `DOM_INDEXEDDB_STORAGE_AND_PURGE`: IndexedDB records confirmed in Chromium session and not found in post-destruction filesystem scan.
+- `DOM_CACHE_STORAGE_PURGE`: Cache Storage API entries confirmed in Chromium session and not found in post-destruction filesystem scan.
+
+### Dimension 2: Chromium Disk Partition & Filesystem (Layer 2)
+- `CHROMIUM_DISK_RESIDUE_SCAN`: Binary deep scan across candidate storage roots reveals 0 canary byte matches post-cleanup.
+- `CHROMIUM_UNALLOCATED_CLUSTER_SLACK`: SQLite/filesystem cluster slack carving (UNVERIFIED - `UNVERIFIED_OS_METADATA_JOURNAL_PRIVILEGED`).
+- `CHROMIUM_NAND_FLASH_PHYSICAL_ZEROIZATION`: SSD NAND flash cell wear-leveling (UNVERIFIED - `UNVERIFIED_PHYSICAL_FTL_UNREACHABLE`).
+
+### Dimension 3: WebContentsView Process & RAM Lifecycle (Layer 3)
+- `WEBCONTENTSVIEW_LIFECYCLE_DESTRUCTION`: WebContentsView detached and webContents closed on tab teardown.
+- `SESSION_STORAGE_DATA_CLEARED`: `clearStorageData()` & `clearCache()` successfully executed.
+- `PROCESS_HEAP_MEMORY_ZEROIZATION`: V8 heap slab zeroization (UNVERIFIED - `UNVERIFIED_V8_HEAP_RAW_INACCESSIBLE`).
+- `HOST_PAGEFILE_EXCLUSION`: OS pagefile exclusion (UNVERIFIED - `UNVERIFIED_KERNEL_PAGING_INACCESSIBLE`).
+
+### Dimension 4: Tor Daemon & SOCKS5 Routing State (Layer 4)
+- `TOR_DATADIRECTORY_CANARY_ISOLATION`: Tor data directory isolation (UNVERIFIED - `UNVERIFIED_TOR_NOT_INCLUDED_IN_AUDIT`).
+- `TOR_CIRCUIT_RAM_STATE_ERASURE`: Tor daemon internal RAM circuit tables (UNVERIFIED - `UNVERIFIED_TOR_CONSENSUS_RETENTION`).
+
+### Dimension 5: Host OS Forensic Artifacts (Layer 5)
+- `OS_CRASHPAD_MINIDUMP_EXCLUSION`: Crashpad contains no minidump files with active canary tokens.
+- `OS_VIRTUAL_MEMORY_PAGEFILE_EXCLUSION`: Windows pagefile.sys inspection (UNVERIFIED - `UNVERIFIED_KERNEL_PAGING_INACCESSIBLE`).
+- `OS_NTFS_METADATA_JOURNAL_PURGE`: NTFS journal records (UNVERIFIED - `UNVERIFIED_OS_METADATA_JOURNAL_PRIVILEGED`).
 
 ---
 
-## 4. Forensic Audit Lifecycle & Methodology
+## 5. Security Honesty Mandate
 
-The auditor executes a controlled 6-phase audit lifecycle to empirically measure residue:
-
-```
-+-----------------------------------------------------------------------------------------+
-|                              AUDITOR 6-PHASE LIFECYCLE                                  |
-+-----------------------------------------------------------------------------------------+
-| Phase 1: Baseline Discovery     -> Maps userData, Partitions, tor-data, %TEMP%          |
-| Phase 2: Canary Injection       -> Injects high-entropy canary tokens into all stores   |
-| Phase 3: Pre-Destruction Check  -> Validates canary presence in active session state     |
-| Phase 4: Lifecycle Destruction  -> Executes closeTab, clearStorageData, key zeroing     |
-| Phase 5: Deep Binary Scan       -> Scans disk & memory for UTF-8, UTF-16LE, ASCII bytes |
-| Phase 6: Multi-Dimensional Eval -> Synthesizes PASS, FAIL, UNVERIFIED matrix            |
-+-----------------------------------------------------------------------------------------+
-```
-
-### 4.1 Canary Token Specification
-Canary tokens are generated with high entropy to avoid collision with standard strings while allowing robust binary regex carving:
-```
-CANARY_<SUBSYSTEM>_<SESSION_UUID_SHORT>_<TIMESTAMP>_<HIGH_ENTROPY_HEX>
-
-Examples:
-CANARY_COOKIE_a1b2c3d4_1772345678000_f89e2c4a91b2c3d4e5f60718
-CANARY_LSTORE_a1b2c3d4_1772345678000_d4e5f60123456789abcdef01
-CANARY_IDB_a1b2c3d4_1772345678000_9876543210abcdef01234567
-CANARY_CACHE_a1b2c3d4_1772345678000_cba09876543210fedcba9876
-CANARY_VAULT_a1b2c3d4_1772345678000_13579bdf2468ace013579bdf
-```
-
-### 4.2 Multi-Encoding Binary Matching Engine
-Chromium and operating systems store strings in varying binary encodings:
-- **UTF-8 / ASCII**: Standard web strings and plain text files.
-- **UTF-16LE**: Chromium LevelDB values (DOMStorage), V8 bytecode caches, and Windows internal APIs.
-- **Hex**: Raw binary stream identifiers.
-
-The `FilesystemScanner` converts every canary token into multiple `Buffer` encodings and performs raw byte search (`buffer.includes(tokenBuffer)`) across all files in scanned runtime roots.
-
----
-
-## 5. Multi-Dimensional Verification Taxonomy & Justification Codes
-
-The auditor rejects simplistic single-boolean verdicts (such as `CLEAN: true`). All findings are categorized into a multi-dimensional matrix:
-
-| Status | Definition |
-|:---:|---|
-| **PASS** | The canary artifact was confirmed created pre-destruction, and was conclusively **not detected** in reachable user-space scanned locations post-destruction. |
-| **FAIL** | The canary artifact, residual session state, or active key was still detected in scanned storage, memory maps, or filesystem paths post-destruction. |
-| **UNVERIFIED** | The property **cannot be verified** in automated user-space execution due to OS privilege limits, hardware FTL, or architecture. **Must include an official justification code.** |
-
-### Official Technical Justification Codes
-
-| Code | Subsystem | Technical Reason |
-|---|---|---|
-| `UNVERIFIED_PHYSICAL_FTL_UNREACHABLE` | SSD Storage | Solid-state drive wear-leveling and controller-managed flash translation layers (FTL) prevent user-space verification of physical NAND cell overwriting. |
-| `UNVERIFIED_KERNEL_PAGING_INACCESSIBLE` | OS Kernel | Operating system virtual memory paging files (`pagefile.sys`, `swapfile.sys`) are locked by the kernel and cannot be inspected from user-space. |
-| `UNVERIFIED_V8_HEAP_RAW_INACCESSIBLE` | Process RAM | V8 JavaScript engine does not zero deallocated memory upon garbage collection; raw process heap carving requires native kernel/debugger attachment. |
-| `UNVERIFIED_OS_METADATA_JOURNAL_PRIVILEGED` | NTFS Filesystem | NTFS `$LogFile`, `$UsnJrnl`, and `$MFT` raw cluster inspection requires Administrator/SYSTEM raw disk handle access (`\\.\PhysicalDrive0`). |
-| `UNVERIFIED_WINDOWS_FILE_LOCK` | File System | Active Chromium process handles prevented non-destructive post-teardown file inspection. |
-| `UNVERIFIED_REQUIRES_LIVE_CHROMIUM_RUNTIME` | Chromium Engine | Native Blink/Chromium DOM storage execution requires an active Electron BrowserWindow process with a loaded web context. |
-| `UNVERIFIED_GPU_VRAM_INACCESSIBLE` | GPU Subsystem | GPU driver compositor buffers and texture memory cannot be audited from user-space JavaScript. |
-| `UNVERIFIED_TOR_CONSENSUS_RETENTION` | Tor Subprocess | Tor daemon intentionally persists directory authority consensus documents and guard node relay state across restarts for network performance. |
-
----
-
-## 6. CLI Usage Reference
-
-Run the forensic auditor CLI:
-
-```bash
-# Run standard audit with terminal console output
-npm run forensic
-
-# Output structured JSON
-npm run forensic -- --json
-
-# Output GitHub-flavored Markdown
-npm run forensic -- --md
-
-# Save report artifact to disk
-npm run forensic -- --out forensic-report.json
-npm run forensic -- --out forensic-report.md --verbose
-```
+1. **Causal Chain Requirement**: A PASS is awarded only when there is a demonstrated causal chain: real artifact created -> verified in browser before destruction -> verified disk surface scanned -> real cleanup executed -> same disk surface scanned post-destruction -> canary absent.
+2. **Empty-Scan Guard**: If scanned files or bytes equals 0, the auditor reports `UNVERIFIED — NO FILESYSTEM EVIDENCE AVAILABLE` rather than `VERIFIED CLEAN`.
+3. **No Binary "CLEAN" Booleans**: The auditor produces multi-dimensional status matrices, explicitly distinguishing verified user-space absence from unverified hardware boundaries.
+4. **Explicit Justifications**: Every UNVERIFIED property maps to an official code explaining why user-space software cannot verify physical or kernel hardware state.
+5. **No Simulation Theater**: Canaries are written to and verified within real Chromium browser storage engines.

@@ -1,4 +1,4 @@
-﻿# ☀️ Apricity Browser
+# ☀️ Apricity Browser
 
 [![Version: v0.1.0](https://img.shields.io/badge/Version-v0.1.0-blue.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
@@ -58,9 +58,7 @@ graph TD
     WC -->|Proxy Configured| Tor
 ```
 
-> **Architectural Boundary Note**: Webview web content (`document.cookie`, `localStorage`, `indexedDB`, `sessionStorage`) executes on Chromium's native Blink engine in RAM partitions (`ephemeral-${UUID}`). It is isolated by Chromium partition engines and cleared via `clearStorageData()`. The `ZeroTrustRenderer` JavaScript layer is an application-level state machine and test abstraction; webview DOM traffic does not pass through the ZTR JavaScript WebCrypto wrapper.
->
-> **Note on Gecko Preference Specification**: `src/ztr/ztr-user.js` and `ZTRPrefs.mjs` define a reference hardening policy derived from Gecko/Firefox privacy profiles. Electron/Chromium implements its own sandboxing through Chromium switches (`--disable-gpu`, etc.) and `webPreferences` (`contextIsolation: true`, `nodeIntegration: false`). `ztr-user.js` is retained as a reference specification test fixture.
+> **Architectural Boundary Note**: Web content (`document.cookie`, `localStorage`, `indexedDB`, `sessionStorage`, `CacheStorage`) executes directly on Chromium's native Blink engine in ephemeral partitions (`ephemeral-${UUID}`) with OS-level sandboxing (`sandbox: true`). It is isolated by Chromium partition engines and cleared via `clearStorageData()` and `clearCache()`.
 
 ---
 
@@ -70,15 +68,13 @@ Apricity evaluates all security properties against empirical test evidence:
 
 | Property | Status | Empirical Evidence & Architectural Justification |
 |---|:---:|---|
-| **Session Identity Isolation** | **VERIFIED** | Verified by `test_adversarial_isolation.mjs` (UUID v4 generation and non-overlapping partition strings). |
-| **Application Storage Isolation** | **VERIFIED** | Verified by `test_adversarial_isolation.mjs` (cross-tab storage separation across cookies, storage, indexedDB, cache). |
-| **Cryptographic Key Separation** | **VERIFIED** | Verified by `test_adversarial_isolation.mjs` (AES-GCM authentication tag mismatch rejects cross-session reads). |
-| **Session Destruction Lifecycle** | **VERIFIED** | Verified by `test_ztr_lifecycle.mjs` & `test_electron_live.mjs` (vault key dereferencing and partition teardown). |
-| **Chromium Native Partition Storage** | **VERIFIED** | Verified by `test_electron_live.mjs` (RAM-only partition allocation, cross-renderer cookie/localStorage/IndexedDB isolation). |
-| **Forensic Filesystem Absence** | **VERIFIED** *(Scanned Surface)* | Verified by `npm run forensic` (deep binary scan of 45 runtime files in `userData` detected 0 residual canaries). |
-| **Default Permission Denial** | **VERIFIED** *(API Layer)* | Verified by `test_adversarial_isolation.mjs` & `test_electron_live.mjs` (`setPermissionRequestHandler` returns `false` by default). |
+| **Session Identity Isolation** | **VERIFIED** | Verified by `test_electron_live.mjs` (UUID v4 generation and non-overlapping in-memory partition strings). |
+| **Chromium Native Partition Storage** | **VERIFIED** | Verified by `test_electron_live.mjs` (ephemeral partition allocation, cross-renderer cookie/localStorage isolation). |
+| **Session Destruction Lifecycle** | **VERIFIED** | Verified by `test_electron_live.mjs` & `test_forensic_auditor.mjs` (`clearStorageData()`, `clearCache()`, WebContentsView destruction). |
+| **Forensic Filesystem Absence** | **VERIFIED** *(Scanned Surface)* | Verified by `npm run forensic` (deep binary scan of 68 runtime files across userData and partition directories detected 0 residual canaries). |
+| **Default Permission Denial** | **VERIFIED** *(API Layer)* | Verified by `test_electron_live.mjs` (`setPermissionRequestHandler` returns `false` by default). |
 | **Physical RAM & Heap Zeroization** | **NOT PROVIDED** | JS GC frees heap references for reuse; it does not physically zero deallocated memory (`UNVERIFIED_V8_HEAP_RAW_INACCESSIBLE`). |
-| **Protection from Memory Dumpers** | **NOT PROVIDED** | Non-extractable WebCrypto keys can still be extracted by local process debuggers or root malware. |
+| **Protection from Memory Dumpers** | **NOT PROVIDED** | Process memory can still be inspected by local process debuggers or root malware with elevated privileges. |
 | **Absolute Anonymity via Tor** | **NOT PROVIDED** | Tor SOCKS5 proxy provides network pseudonymity, not mathematical anonymity against traffic correlation or fingerprinting. |
 | **SSD Physical NAND Zeroization** | **UNVERIFIED** | Solid-state drive wear-leveling (FTL) writes out-of-place; physical cells are inaccessible (`UNVERIFIED_PHYSICAL_FTL_UNREACHABLE`). |
 | **OS Virtual Memory Pagefile Exclusion** | **UNVERIFIED** | Host OS Kernel may page process RAM to `pagefile.sys` under memory exhaustion (`UNVERIFIED_KERNEL_PAGING_INACCESSIBLE`). |
@@ -87,7 +83,7 @@ Apricity evaluates all security properties against empirical test evidence:
 
 ## 🔬 Forensic Artifact Auditor
 
-Apricity includes a built-in automated **Forensic Artifact Auditor** (`npm run forensic`) designed to experimentally measure session residue:
+Apricity includes a built-in automated **Forensic Artifact Auditor** (`npm run forensic`) designed to experimentally verify session cleanup:
 
 ```bash
 # Run standard forensic audit
@@ -101,37 +97,32 @@ npm run forensic -- --md --verbose
 ```
 
 ### How the Auditor Works:
-1. **Canary Injection**: Generates high-entropy canary tokens across 7 subsystems (`COOKIE`, `LSTORE`, `IDB`, `CACHE`, `VAULT`, `SWORKER`, `TOR`) encoded in `UTF-8`, `UTF-16LE` (LevelDB/SQLite DOMStorage format), `ASCII`, and hex.
-2. **Pre-Destruction Validation**: Confirms canary existence during active session state.
-3. **Destruction Execution**: Executes Apricity's teardown protocol (`closeTab`, `clearStorageData`, `clearCache`, key zeroing).
-4. **Deep Binary Sweep**: Multi-encoding binary file scan across `%APPDATA%\...\userData`, `Partitions`, `tor-data`, and `%TEMP%`.
-5. **Multi-Dimensional Classification**:
-   * **PASS**: Canary artifact was created pre-destruction and was conclusively **not detected** in reachable scanned locations post-destruction.
-   * **FAIL**: Canary artifact or residual session state was detected post-destruction.
-   * **UNVERIFIED**: Property cannot be reliably verified due to OS kernel, hardware FTL, or driver barriers (documented with official justification codes).
+1. **Isolated Test Environment**: Configures a dedicated temporary `userData` directory via `app.setPath('userData', tempDir)` before Electron session initialization. Asserts runtime path equality.
+2. **Causal Disk-Backed Harness**: Uses a dedicated disk-backed partition (`persist:forensic-audit-<UUID>`) inside the temporary environment to allow empirical observation of disk persistence and subsequent cleanup (while production Apricity uses in-memory partitions).
+3. **Canary Injection**: Generates high-entropy canary tokens across 5 storage subsystems (`COOKIE`, `LSTORE`, `SESSION`, `IDB`, `CACHE`) encoded in `UTF-8`, `UTF-16LE` (LevelDB/SQLite DOMStorage format), `ASCII`, and `hex`.
+4. **Pre-Destruction Presence Validation**: Confirms canary existence during active session state in both browser storage and physical files (e.g. IndexedDB `.log` and Service Worker `CacheStorage` blobs).
+5. **Destruction Execution**: Executes Apricity's teardown protocol (`clearStorageData`, `clearCache`, WebContentsView detachment and destruction).
+6. **Deep Binary Sweep & Empty-Scan Guard**: Multi-encoding binary file scan across the exact same temporary `userData` tree. If scanned files or bytes equals 0, reports `UNVERIFIED — NO FILESYSTEM EVIDENCE AVAILABLE` rather than `VERIFIED CLEAN`.
+7. **4-State Causal Breakdown**: Reports Browser Pre-State, Filesystem Pre-State, Cleanup Method, Filesystem Post-State, and Result per subsystem.
 
 ---
 
 ## 🧪 Automated Testing
 
-Run the automated test suites covering lifecycle state management, adversarial isolation, live Electron execution, and binary scanner precision:
+Run the automated test suites covering WebContentsView architecture, live Electron execution, binary scanner precision, and adversarial stress tests:
 
 ```bash
-# Run core test suites (Lifecycle + Adversarial + Forensic Auditor)
+# Run core test suites (Live Electron + Forensic Auditor)
 npm test
 
 # Run live Electron & Chromium runtime verification harness
 npm run test:electron
 
-# Run all test suites including scanner stress and challenger suites
-npm run test:all
+# Run forensic auditor test suite
+npm run test:forensic
 
-# Run specific test suites
-npm run test:lifecycle      # ZTR in-memory engine and preferences tests
-npm run test:adversarial    # Adversarial session, partition, and crypto tests
-npm run test:forensic       # Forensic auditor unit & integration tests
-npm run test:scanner        # Binary scanner multi-encoding & buffer stress tests
-npm run test:stress         # Challenger adversarial residue injection tests
+# Run adversarial challenger stress test suite
+npm run test:stress
 ```
 
 ---
@@ -209,3 +200,7 @@ Contributions are welcome! Please read [**`CONTRIBUTING.md`**](CONTRIBUTING.md) 
 ## 📄 License
 
 Licensed under the [MIT License](LICENSE).
+
+## Forensic Verification
+
+The auditor verifies the absence of known test canaries from the filesystem surfaces it scans after a real Chromium session is destroyed. It does not prove complete forensic absence from physical hardware.

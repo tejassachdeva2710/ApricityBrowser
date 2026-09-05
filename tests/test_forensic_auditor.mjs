@@ -1,29 +1,64 @@
 /**
  * test_forensic_auditor.mjs
  * 
- * Comprehensive automated test suite for Apricity Browser's Forensic Artifact Auditor.
+ * Comprehensive automated test suite for Apricity Browser's Real Electron Forensic Artifact Auditor.
  * 
- * Verifies:
- * 1. CanaryGenerator (entropy, formatting, multi-encoding generation).
- * 2. FilesystemScanner (binary regex matching, UTF-8/UTF-16LE detection, exclusion filters, lock handling).
- * 3. ForensicAuditor (full 6-phase lifecycle orchestration).
- * 4. Intentional Failure Injection (asserts auditor detects injected canary residue and marks FAIL).
- * 5. UNVERIFIED Classification & Justification integrity.
- * 6. ForensicReporter & Security Honesty (rejection of naive CLEAN booleans, structured schema).
+ * Verifies the 12 Causal Integrity Requirements:
+ * 1. Electron actually uses the isolated temporary userData directory.
+ * 2. Disk-backed forensic partition (persist:forensic-audit-<UUID>) is actually created.
+ * 3. Real Chromium storage is populated across multiple subsystems.
+ * 4. Pre-destruction browser readback succeeds.
+ * 5. Filesystem scan operates on the exact same userData tree.
+ * 6. Empty filesystem scans cannot produce VERIFIED CLEAN (Empty-Scan Guard).
+ * 7. Known file residue produces FAIL and flags RESIDUAL_ARTIFACTS_DETECTED.
+ * 8. Clean disk-backed teardown produces VERIFIED CLEAN when causal evidence exists.
+ * 9. Failed canary creation produces UNVERIFIED.
+ * 10. Abnormal termination is isolated and accurately reports retained state.
+ * 11. The user's real AppData is never scanned.
+ * 12. No ZTR simulator is involved in the active architecture or auditor.
  */
 
 import assert from 'node:assert';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { CanaryGenerator, CANARY_SUBSYSTEMS } from '../src/forensics/CanaryGenerator.mjs';
-import { FilesystemScanner, DEFAULT_EXCLUSIONS } from '../src/forensics/FilesystemScanner.mjs';
-import { ForensicAuditor, JUSTIFICATION_CODES } from '../src/forensics/ForensicAuditor.mjs';
-import { ForensicReporter } from '../src/forensics/ForensicReporter.mjs';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const projectRoot = path.resolve(__dirname, '..');
+
+// If executed via node, respawn inside Electron for full Chromium runtime execution
+if (!process.versions.electron) {
+  const electronCli = path.join(projectRoot, 'node_modules', 'electron', 'cli.js');
+  const args = process.argv.slice(2);
+  const result = spawnSync(process.execPath, [electronCli, __filename, ...args], {
+    stdio: 'inherit',
+    cwd: projectRoot
+  });
+  process.exit(result.status ?? 0);
+}
+
+// In Electron runtime: configure isolated temporary userData BEFORE app is ready
+const electron = await import('electron');
+const { app } = electron;
+const baseTmp = process.env.LOCALAPPDATA ? path.join(process.env.LOCALAPPDATA, 'Temp') : 'C:\\Temp';
+const testTempUserData = path.join(baseTmp, `apricity_test_userdata_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`);
+if (!fs.existsSync(testTempUserData)) {
+  try { fs.mkdirSync(testTempUserData, { recursive: true }); } catch (_) {}
+}
+app.setPath('userData', testTempUserData);
+
+const { CanaryGenerator, CANARY_SUBSYSTEMS } = await import('../src/forensics/CanaryGenerator.mjs');
+const { FilesystemScanner, DEFAULT_EXCLUSIONS } = await import('../src/forensics/FilesystemScanner.mjs');
+const { ForensicAuditor, JUSTIFICATION_CODES } = await import('../src/forensics/ForensicAuditor.mjs');
+const { ForensicReporter } = await import('../src/forensics/ForensicReporter.mjs');
 
 async function runForensicTestSuite() {
   console.log('================================================================');
-  console.log('  🔬  Apricity Browser — Forensic Auditor Automated Test Suite');
+  console.log('  🔬  Apricity Browser — Real Forensic Auditor Test Suite');
+  console.log('  Causal Verification & Isolated Disk-Backed Test Harness');
   console.log('================================================================\n');
 
   let passed = 0;
@@ -59,7 +94,7 @@ async function runForensicTestSuite() {
     assert(validation.entropy.length >= 24, 'Entropy must be at least 24 hex characters');
   });
 
-  await test('Generates full session canary set covering all 7 subsystems', async () => {
+  await test('Generates full session canary set covering all storage subsystems', async () => {
     const canarySet = CanaryGenerator.generateSessionCanarySet();
     assert(canarySet.sessionUUID);
     assert.strictEqual(typeof canarySet.tokens, 'object');
@@ -80,14 +115,13 @@ async function runForensicTestSuite() {
     assert(Buffer.isBuffer(encodings.ascii));
     assert.strictEqual(typeof encodings.hex, 'string');
 
-    // UTF-16LE should be twice the byte length of ASCII for standard ASCII characters
     assert.strictEqual(encodings.utf16le.length, token.length * 2);
     assert.strictEqual(encodings.utf8.toString('utf8'), token);
     assert.strictEqual(encodings.utf16le.toString('utf16le'), token);
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 2. FILESYSTEM & BINARY SCANNER TESTS
+  // 2. FILESYSTEM & BINARY SCANNER PRECISION TESTS
   // ═══════════════════════════════════════════════════════════════════════════
   console.log('\n--- 2. Filesystem & Binary Scanner Precision ---');
 
@@ -147,88 +181,81 @@ async function runForensicTestSuite() {
     fs.rmSync(path.join(testTempDir, 'node_modules'), { recursive: true, force: true });
   });
 
-  await test('Scans in-memory JavaScript structures (Maps, nested objects)', async () => {
-    const canarySet = CanaryGenerator.generateSessionCanarySet();
-    const patterns = CanaryGenerator.extractSearchPatterns(canarySet);
-
-    const mockState = {
-      activeSession: {
-        id: 'test-session',
-        store: new Map([
-          ['k1', 'safe-data'],
-          ['k2', canarySet.tokens.VAULT.token]
-        ])
-      }
-    };
-
-    const matches = FilesystemScanner.scanMemoryStructure(mockState, patterns);
-    assert.strictEqual(matches.length, 1);
-    assert.strictEqual(matches[0].subsystem, 'VAULT');
-  });
-
-  // Clean up temporary test directory
   try {
     fs.rmSync(testTempDir, { recursive: true, force: true });
   } catch (_) { }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 3. FORENSIC AUDITOR LIFECYCLE EXECUTION
+  // 3. CAUSAL VERIFICATION: REAL CHROMIUM FORENSIC AUDITOR LIFECYCLE
   // ═══════════════════════════════════════════════════════════════════════════
-  console.log('\n--- 3. Forensic Auditor Full Lifecycle Execution ---');
+  console.log('\n--- 3. Real Chromium Forensic Auditor Causal Execution ---');
 
-  await test('Executes 6-phase audit and evaluates 5 security dimensions', async () => {
+  let liveAuditResult = null;
+
+  await test('1. Electron actually uses the isolated temporary userData directory', async () => {
     const auditor = new ForensicAuditor();
-    const auditResult = await auditor.runAudit({ tabId: 'test-audit-tab' });
+    liveAuditResult = await auditor.runAudit({ tabId: 'test-causal-tab' });
 
-    assert(auditResult.metadata);
-    assert(auditResult.architecturalContext);
-    assert(auditResult.session);
-    assert(auditResult.discovery);
-    assert(auditResult.verification);
-    assert(auditResult.dimensions);
-    assert(auditResult.summary);
-
-    // Verify pre-destruction succeeded
-    assert.strictEqual(auditResult.verification.preDestructionValid, true);
-
-    // Verify post-destruction memory cleanup succeeded
-    assert.strictEqual(auditResult.verification.postDestructionMemory.userStoreDeleted, true);
-    assert.strictEqual(auditResult.verification.postDestructionMemory.vaultKeyDeleted, true);
-    assert.strictEqual(auditResult.verification.postCloseReadBlocked, true);
-    assert.strictEqual(auditResult.verification.inMemoryLeakCount, 0);
-
-    // Verify dimensions are populated
-    const dims = auditResult.dimensions;
-    assert(dims.dimension1_CryptoVault);
-    assert(dims.dimension2_StorageSimulator);
-    assert(dims.dimension3_ChromiumPartition);
-    assert(dims.dimension4_TorDaemon);
-    assert(dims.dimension5_HostOS);
-
-    // Verify summary counts
-    assert(auditResult.summary.passCount >= 7);
-    assert.strictEqual(auditResult.summary.failCount, 0);
-    assert(auditResult.summary.unverifiedCount >= 5);
+    assert(liveAuditResult.environment, 'Audit result must include environment metadata');
     assert.strictEqual(
-      auditResult.summary.honestVerdict,
-      'VERIFIED_EPHEMERAL_COMPLIANT_WITH_UNVERIFIED_HARDWARE_BOUNDARIES'
+      liveAuditResult.environment.userDataPathVerified,
+      true,
+      'ACTUAL_ELECTRON_USERDATA_PATH === SCANNED_USERDATA_PATH assertion must pass'
+    );
+    assert(
+      liveAuditResult.environment.scannedUserDataPath.includes('apricity_') ||
+      liveAuditResult.environment.scannedUserDataPath.includes('tmp') ||
+      liveAuditResult.environment.scannedUserDataPath.includes('Temp'),
+      'UserData path must be an isolated temporary test directory'
     );
   });
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // 4. INTENTIONAL FAILURE INJECTION TEST (Anti-Cheat & Non-Facade Verification)
-  // ═══════════════════════════════════════════════════════════════════════════
-  console.log('\n--- 4. Intentional Failure Injection (Scanner Precision Test) ---');
+  await test('2. Disk-backed forensic partition (persist:forensic-audit-<UUID>) is created', async () => {
+    assert(liveAuditResult.environment.partitionId.startsWith('persist:forensic-audit-'));
+    assert(liveAuditResult.environment.partitionDir.includes('Partitions'));
+  });
 
-  await test('Detects intentional residual canary file and produces FAIL verdict', async () => {
+  await test('3 & 4. Real Chromium storage populated and pre-destruction browser readback succeeds', async () => {
+    const pre = liveAuditResult.preDestruction.browserStorage;
+    assert.strictEqual(pre.cookiePresent, true, 'Cookies must be verified present in Chromium before destruction');
+    assert.strictEqual(pre.lstorePresent, true, 'LocalStorage must be verified present before destruction');
+    assert.strictEqual(pre.sstorePresent, true, 'SessionStorage must be verified present before destruction');
+    assert.strictEqual(pre.idbPresent, true, 'IndexedDB must be verified present before destruction');
+    assert.strictEqual(pre.cachePresent, true, 'Cache Storage must be verified present before destruction');
+    assert.strictEqual(liveAuditResult.preDestruction.browserStorageValid, true);
+  });
+
+  await test('5. Filesystem scan operates on the exact same userData tree and finds real files', async () => {
+    assert(liveAuditResult.discovery.scannedFilesCount > 0, 'Real disk scan must find files in userData');
+    assert(liveAuditResult.discovery.scannedBytesCount > 0, 'Real disk scan must scan >0 bytes');
+  });
+
+  await test('6. Empty-Scan Guard: Scanned Files = 0 or Bytes = 0 prevents VERIFIED CLEAN', async () => {
+    const auditor = new ForensicAuditor();
+    const mockDims = auditor._evaluateDimensions({
+      userDataPathVerified: true,
+      preDestructionValid: true,
+      browserPreCheck: { cookiePresent: true, lstorePresent: true, idbPresent: true, cachePresent: true },
+      postFsScanResult: { matches: [], scannedFilesCount: 0, scannedBytesCount: 0 },
+      destroySummary: { viewClosed: true, storageCleared: true, cacheCleared: true },
+      runtimePaths: {}
+    });
+
+    const cookieProp = mockDims.dimension1_DOMStorage.properties.find(p => p.id === 'DOM_COOKIE_STORAGE_AND_PURGE');
+    assert.strictEqual(cookieProp.status, 'UNVERIFIED', '0-file scan must produce UNVERIFIED for DOM storage');
+    assert.strictEqual(cookieProp.justificationCode, JUSTIFICATION_CODES.NO_FILESYSTEM_EVIDENCE_AVAILABLE);
+
+    const summary = auditor._calculateSummary(mockDims, { scannedFilesCount: 0, scannedBytesCount: 0 }, true);
+    assert.strictEqual(summary.honestVerdict, 'UNVERIFIED_NO_FILESYSTEM_EVIDENCE');
+  });
+
+  await test('7. Known file residue produces FAIL and flags RESIDUAL_ARTIFACTS_DETECTED', async () => {
     const scratchDir = path.join(os.tmpdir(), `apricity_failure_inject_${Date.now()}`);
     if (!fs.existsSync(scratchDir)) fs.mkdirSync(scratchDir, { recursive: true });
     const residualFile = path.join(scratchDir, 'leaked_cookie_state.dat');
 
     const auditor = new ForensicAuditor({
-      customPaths: {
-        userData: scratchDir
-      }
+      customPaths: { userData: scratchDir }
     });
 
     const result = await auditor.runAudit({
@@ -236,25 +263,153 @@ async function runForensicTestSuite() {
       intentionalFailurePath: residualFile
     });
 
-    // The auditor MUST detect the failure and mark CHROMIUM_DISK_RESIDUE_SCAN as FAIL
-    const partitionDim = result.dimensions.dimension3_ChromiumPartition;
-    const diskScanProp = partitionDim.properties.find(p => p.id === 'CHROMIUM_DISK_RESIDUE_SCAN');
-
-    assert(diskScanProp, 'CHROMIUM_DISK_RESIDUE_SCAN property must exist');
-    assert.strictEqual(diskScanProp.status, 'FAIL', 'Intentional leak MUST cause property to FAIL');
     assert(result.summary.failCount > 0, 'Fail count must be > 0 when residue exists');
     assert.strictEqual(result.summary.honestVerdict, 'RESIDUAL_ARTIFACTS_DETECTED');
 
-    // Clean up scratch dir
-    try {
-      fs.rmSync(scratchDir, { recursive: true, force: true });
-    } catch (_) { }
+    try { fs.rmSync(scratchDir, { recursive: true, force: true }); } catch (_) { }
+  });
+
+  await test('8. Absolute Invariant: VERIFIED CLEAN requires disk pre-evidence; unverifiable subsystems get honest UNVERIFIED', async () => {
+    assert.strictEqual(liveAuditResult.summary.failCount, 0, 'Clean live run must have 0 failures');
+    assert.strictEqual(liveAuditResult.verification.diskMatchCount, 0, 'Must have 0 residual canary matches');
+    assert.strictEqual(
+      liveAuditResult.summary.honestVerdict,
+      'VERIFIED_DISK_PURGED_WITH_UNVERIFIED_HARDWARE_BOUNDARIES'
+    );
+
+    // IDB: the only path to VERIFIED CLEAN is filesystem pre-evidence AND absence after cleanup
+    const idbArt = liveAuditResult.artifacts.IDB;
+    assert.strictEqual(idbArt.browserPreState, 'VERIFIED_PRESENT',
+      'IDB canary must be verified in Chromium before destruction');
+    assert.strictEqual(idbArt.filesystemPreState, 'FOUND',
+      'IDB canary MUST be found in LevelDB .log file before cleanup (causal pre-evidence)');
+    assert.strictEqual(idbArt.filesystemPostState, 'NOT_FOUND',
+      'IDB canary must be absent from disk after cleanup');
+    assert.strictEqual(idbArt.verdict, 'VERIFIED CLEAN',
+      'IDB with filesystem pre-evidence must be VERIFIED CLEAN');
+
+    // CACHE: same requirement
+    const cacheArt = liveAuditResult.artifacts.CACHE;
+    assert.strictEqual(cacheArt.browserPreState, 'VERIFIED_PRESENT',
+      'Cache canary must be verified in Chromium before destruction');
+    assert.strictEqual(cacheArt.filesystemPreState, 'FOUND',
+      'Cache canary MUST be found in CacheStorage entry file before cleanup (causal pre-evidence)');
+    assert.strictEqual(cacheArt.filesystemPostState, 'NOT_FOUND',
+      'Cache canary must be absent from disk after cleanup');
+    assert.strictEqual(cacheArt.verdict, 'VERIFIED CLEAN',
+      'Cache with filesystem pre-evidence must be VERIFIED CLEAN');
+
+    // COOKIE: must NOT be VERIFIED CLEAN — the Cookies SQLite file is EBUSY-locked while Chromium
+    // is running, so we cannot confirm the canary was on disk before cleanup. v4.0.0 fix: P0.
+    const cookieArt = liveAuditResult.artifacts.COOKIE;
+    assert.strictEqual(cookieArt.browserPreState, 'VERIFIED_PRESENT',
+      'Cookie canary must be verified in Chromium before destruction');
+    assert.notStrictEqual(cookieArt.verdict, 'VERIFIED CLEAN',
+      'COOKIE must NOT be VERIFIED CLEAN — disk pre-evidence cannot be established while Chromium holds the SQLite lock');
+    assert(
+      ['UNVERIFIED_FILE_LOCKED', 'UNVERIFIED_NOT_COMMITTED_TO_DISK', 'UNVERIFIED'].includes(cookieArt.verdict),
+      `COOKIE verdict must be an honest UNVERIFIED variant, got: ${cookieArt.verdict}`
+    );
+
+    // LSTORE: may be VERIFIED CLEAN if quiescence detection found the canary in the .log file,
+    // or UNVERIFIED_NOT_COMMITTED_TO_DISK if the canary hadn't flushed to disk within the window.
+    // Either is honest. Must NOT be VERIFIED CLEAN if filesystemPreState is NOT_FOUND.
+    const lstoreArt = liveAuditResult.artifacts.LSTORE;
+    assert.strictEqual(lstoreArt.browserPreState, 'VERIFIED_PRESENT',
+      'LocalStorage canary must be verified in Chromium before destruction');
+    if (lstoreArt.verdict === 'VERIFIED CLEAN') {
+      assert.strictEqual(lstoreArt.filesystemPreState, 'FOUND',
+        'LSTORE verdict VERIFIED CLEAN requires filesystemPreState=FOUND (invariant enforcement)');
+    } else {
+      assert(
+        ['UNVERIFIED_NOT_COMMITTED_TO_DISK', 'UNVERIFIED_FILE_LOCKED', 'UNVERIFIED'].includes(lstoreArt.verdict),
+        `LSTORE non-VERIFIED-CLEAN verdict must be an honest UNVERIFIED variant, got: ${lstoreArt.verdict}`
+      );
+    }
+
+    // SESSION: must always be UNVERIFIED_NOT_DISK_PERSISTENT (SessionStorage is in-memory only)
+    const sessionArt = liveAuditResult.artifacts.SESSION;
+    assert.strictEqual(sessionArt.filesystemPreState, 'NOT_APPLICABLE',
+      'SESSION filesystemPreState must be NOT_APPLICABLE (not a disk-persistent API)');
+    assert.strictEqual(sessionArt.verdict, 'UNVERIFIED_NOT_DISK_PERSISTENT',
+      'SESSION must always be UNVERIFIED_NOT_DISK_PERSISTENT — never VERIFIED CLEAN');
+    assert(sessionArt.verdictJustificationCode,
+      'SESSION must have a justification code explaining the non-disk-persistent classification');
+  });
+
+  await test('9. Failed canary creation or unverified browser state produces UNVERIFIED', async () => {
+    const auditor = new ForensicAuditor();
+    const mockDims = auditor._evaluateDimensions({
+      userDataPathVerified: true,
+      preDestructionValid: false,
+      browserPreCheck: { cookiePresent: false, lstorePresent: false, idbPresent: false, cachePresent: false },
+      postFsScanResult: { matches: [], scannedFilesCount: 50, scannedBytesCount: 100000 },
+      destroySummary: { viewClosed: true, storageCleared: true, cacheCleared: true },
+      runtimePaths: {}
+    });
+
+    for (const prop of mockDims.dimension1_DOMStorage.properties) {
+      assert.strictEqual(prop.status, 'UNVERIFIED', 'Unverified browser state MUST produce UNVERIFIED');
+    }
+  });
+
+  await test('10. Skip-cleanup mode: IDB/Cache canaries persist on disk when clearStorageData is not called', async () => {
+    // NOTE: This tests the in-process "skip-cleanup" mode (no clearStorageData called).
+    // The GENUINE crash test (SIGKILL via --abnormal CLI flag) requires an out-of-process
+    // scan and is exercised via: npm run forensic -- --abnormal
+    // This test verifies:
+    //   a) skipCleanup flag is respected (storageCleared=false)
+    //   b) IDB and CACHE canaries ARE found on disk post-scan (they persisted because we skipped cleanup)
+    //   c) The mode label is correct (SKIP_CLEANUP_TEST, not ABNORMAL_TERMINATION)
+
+    const auditor = new ForensicAuditor();
+    const result = await auditor.runAudit({ skipCleanup: true });
+
+    // Mode label
+    assert.strictEqual(result.metadata.mode, 'SKIP_CLEANUP_TEST',
+      'Skip-cleanup mode must be labelled SKIP_CLEANUP_TEST');
+
+    // clearStorageData was NOT called
+    assert.strictEqual(result.verification.destroySummary.storageCleared, false,
+      'storageCleared must be false in skip-cleanup mode');
+    assert.strictEqual(result.verification.destroySummary.cacheCleared, false,
+      'cacheCleared must be false in skip-cleanup mode');
+
+    // IDB and CACHE should be found on disk post-scan (data persists without cleanup)
+    // This is the EXPECTED behavior — proves the data would survive a real crash
+    const idbPostMatches = result.verification.diskMatches.filter(m => m.subsystem === 'IDB').length;
+    const cachePostMatches = result.verification.diskMatches.filter(m => m.subsystem === 'CACHE').length;
+
+    assert(idbPostMatches > 0,
+      `IDB canary must persist on disk when clearStorageData is not called (got ${idbPostMatches} matches)`);
+    assert(cachePostMatches > 0,
+      `Cache canary must persist on disk when clearStorageData is not called (got ${cachePostMatches} matches)`);
+
+    // Overall verdict must reflect the residual artifacts
+    assert.strictEqual(result.summary.honestVerdict, 'RESIDUAL_ARTIFACTS_DETECTED',
+      'Skip-cleanup run must produce RESIDUAL_ARTIFACTS_DETECTED');
+    assert(result.summary.failCount > 0,
+      'Skip-cleanup run must have at least one FAIL property');
+  });
+
+  await test('11. The user\'s real AppData is never scanned', async () => {
+    const realAppData = process.env.APPDATA;
+    for (const root of liveAuditResult.discovery.scannedRoots) {
+      if (realAppData && root === realAppData) {
+        assert.fail('Real AppData root was scanned directly!');
+      }
+    }
+  });
+
+  await test('12. No ZTR simulator is involved in the active architecture or auditor', async () => {
+    assert.strictEqual(typeof globalThis.ZeroTrustRenderer, 'undefined');
+    assert.strictEqual(typeof globalThis.ZTRCryptoVault, 'undefined');
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 5. UNVERIFIED CLASSIFICATION & JUSTIFICATION INTEGRITY
+  // 4. UNVERIFIED CLASSIFICATION & JUSTIFICATION INTEGRITY
   // ═══════════════════════════════════════════════════════════════════════════
-  console.log('\n--- 5. UNVERIFIED Classification & Justifications ---');
+  console.log('\n--- 4. UNVERIFIED Classification & Justifications ---');
 
   await test('All UNVERIFIED properties have official justification codes and explanations', async () => {
     const auditor = new ForensicAuditor();
@@ -280,18 +435,16 @@ async function runForensicTestSuite() {
       }
     }
 
-    assert(unverifiedFound >= 5, 'Must have at least 5 UNVERIFIED properties covering OS/hardware limits');
+    assert(unverifiedFound >= 7, 'Must have UNVERIFIED properties covering OS, Tor, and hardware limits');
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // 6. FORENSIC REPORTER & SECURITY HONESTY
+  // 5. FORENSIC REPORTER SCHEMA & HONESTY VERIFICATION
   // ═══════════════════════════════════════════════════════════════════════════
-  console.log('\n--- 6. Forensic Reporter Schema & Honesty Verification ---');
+  console.log('\n--- 5. Forensic Reporter Schema & Honesty Verification ---');
 
   await test('Generates structured JSON without naive CLEAN boolean', async () => {
-    const auditor = new ForensicAuditor();
-    const result = await auditor.runAudit();
-    const jsonStr = ForensicReporter.formatJson(result);
+    const jsonStr = ForensicReporter.formatJson(liveAuditResult);
     const parsed = JSON.parse(jsonStr);
 
     assert(parsed.metadata);
@@ -301,22 +454,21 @@ async function runForensicTestSuite() {
     assert.strictEqual(parsed.summary.zeroResidue, undefined, 'Must NOT contain zeroResidue boolean');
   });
 
-  await test('Generates formatted Console and Markdown outputs with architectural boundaries', async () => {
-    const auditor = new ForensicAuditor();
-    const result = await auditor.runAudit();
-
-    const consoleOutput = ForensicReporter.formatConsole(result, { verbose: true });
-    assert(consoleOutput.includes('APRICITY BROWSER — EPHEMERAL FORENSIC ARTIFACT AUDIT REPORT'));
-    assert(consoleOutput.includes('ARCHITECTURAL LAYER CONTEXT'));
-    assert(consoleOutput.includes('Layer A (ZTR Simulator)'));
-    assert(consoleOutput.includes('Layer B (Native Webview)'));
+  await test('Generates formatted Console and Markdown outputs with explicit causal state tables', async () => {
+    const consoleOutput = ForensicReporter.formatConsole(liveAuditResult, { verbose: true });
+    assert(consoleOutput.includes('APRICITY BROWSER — REAL CHROMIUM FORENSIC ARTIFACT AUDIT REPORT'));
+    assert(consoleOutput.includes('REAL CHROMIUM STORAGE SUBSYSTEM CAUSAL VERIFICATION'));
+    assert(consoleOutput.includes('Browser Pre-State'));
+    assert(consoleOutput.includes('Filesystem Pre-State'));
+    assert(consoleOutput.includes('Filesystem Post-State'));
     assert(consoleOutput.includes('[PASS]'));
     assert(consoleOutput.includes('[UNVERIFIED]'));
 
-    const markdownOutput = ForensicReporter.formatMarkdown(result);
+    const markdownOutput = ForensicReporter.formatMarkdown(liveAuditResult);
     assert(markdownOutput.includes('# Apricity Browser — Forensic Artifact Audit Report'));
     assert(markdownOutput.includes('## 1. Architectural Context & Security Boundaries'));
-    assert(markdownOutput.includes('## 4. Multi-Dimensional Verification Matrix'));
+    assert(markdownOutput.includes('## 3. Storage Subsystem Causal Verification'));
+    assert(markdownOutput.includes('## 5. Multi-Dimensional Verification Matrix'));
     assert(markdownOutput.includes('Honesty Mandate'));
   });
 
@@ -324,9 +476,17 @@ async function runForensicTestSuite() {
   console.log(`  RESULTS: ${passed} Passed, ${failed} Failed`);
   console.log('================================================================\n');
 
-  if (failed > 0) {
-    process.exit(1);
-  }
+  // Clean up test userData directory
+  try {
+    if (fs.existsSync(testTempUserData)) {
+      fs.rmSync(testTempUserData, { recursive: true, force: true });
+    }
+  } catch (_) {}
+
+  setTimeout(() => app.exit(failed > 0 ? 1 : 0), 100);
 }
 
-runForensicTestSuite();
+app.whenReady().then(runForensicTestSuite).catch(err => {
+  console.error(err);
+  setTimeout(() => app.exit(1), 100);
+});

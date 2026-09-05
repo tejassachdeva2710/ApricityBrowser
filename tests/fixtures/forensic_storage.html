@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Apricity Forensic Storage Canary Fixture</title>
+</head>
+<body>
+  <h1>Apricity Forensic Storage Canary Fixture</h1>
+  <div id="status">Ready</div>
+
+  <script>
+    window.forensicFixture = {
+      // 1. LocalStorage
+      setLocalStorage: (key, val) => {
+        try {
+          localStorage.setItem(key, val);
+          return localStorage.getItem(key) === val;
+        } catch (e) {
+          console.error('[Fixture] LocalStorage set error:', e);
+          return false;
+        }
+      },
+      getLocalStorage: (key) => {
+        try {
+          return localStorage.getItem(key);
+        } catch (e) {
+          return null;
+        }
+      },
+
+      // 2. SessionStorage
+      setSessionStorage: (key, val) => {
+        try {
+          sessionStorage.setItem(key, val);
+          return sessionStorage.getItem(key) === val;
+        } catch (e) {
+          console.error('[Fixture] SessionStorage set error:', e);
+          return false;
+        }
+      },
+      getSessionStorage: (key) => {
+        try {
+          return sessionStorage.getItem(key);
+        } catch (e) {
+          return null;
+        }
+      },
+
+      // 3. Document Cookie
+      setCookie: (name, val) => {
+        try {
+          document.cookie = name + '=' + val + '; path=/; SameSite=Lax';
+          return document.cookie.includes(name + '=' + val);
+        } catch (e) {
+          console.error('[Fixture] Cookie set error:', e);
+          return false;
+        }
+      },
+      getCookie: (name) => {
+        try {
+          const match = document.cookie.match(new RegExp('(^|;\\s*)' + name + '=([^;]*)'));
+          return match ? match[2] : null;
+        } catch (e) {
+          return null;
+        }
+      },
+
+      // 4. IndexedDB
+      setIndexedDB: (dbName, storeName, key, val) => {
+        return new Promise((resolve, reject) => {
+          try {
+            const req = indexedDB.open(dbName, 1);
+            req.onupgradeneeded = (e) => {
+              const db = e.target.result;
+              if (!db.objectStoreNames.contains(storeName)) {
+                db.createObjectStore(storeName);
+              }
+            };
+            req.onsuccess = (e) => {
+              const db = e.target.result;
+              const tx = db.transaction(storeName, 'readwrite');
+              const store = tx.objectStore(storeName);
+              store.put(val, key);
+              tx.oncomplete = () => {
+                db.close();
+                resolve(true);
+              };
+              tx.onerror = () => reject(tx.error);
+            };
+            req.onerror = () => reject(req.error);
+          } catch (err) {
+            reject(err);
+          }
+        });
+      },
+      getIndexedDB: (dbName, storeName, key) => {
+        return new Promise((resolve, reject) => {
+          try {
+            const req = indexedDB.open(dbName, 1);
+            req.onsuccess = (e) => {
+              const db = e.target.result;
+              if (!db.objectStoreNames.contains(storeName)) {
+                db.close();
+                return resolve(null);
+              }
+              const tx = db.transaction(storeName, 'readonly');
+              const store = tx.objectStore(storeName);
+              const getReq = store.get(key);
+              getReq.onsuccess = () => {
+                db.close();
+                resolve(getReq.result);
+              };
+              getReq.onerror = () => {
+                db.close();
+                reject(getReq.error);
+              };
+            };
+            req.onerror = () => reject(req.error);
+          } catch (err) {
+            reject(err);
+          }
+        });
+      },
+
+      // 5. Cache Storage API
+      setCacheStorage: async (cacheName, requestUrl, responseContent) => {
+        if (!('caches' in window)) return false;
+        try {
+          const targetUrl = new URL(requestUrl, window.location.origin).href;
+          const cache = await caches.open(cacheName);
+          try { await cache.delete(targetUrl); } catch (_) {}
+          const res = new Response(responseContent, {
+            status: 200,
+            headers: { 'Content-Type': 'text/plain' }
+          });
+          await cache.put(targetUrl, res);
+          return true;
+        } catch (err) {
+          console.error('[Fixture] CacheStorage set error:', err ? (err.name + ': ' + err.message) : err);
+          return false;
+        }
+      },
+      getCacheStorage: async (cacheName, requestUrl) => {
+        if (!('caches' in window)) return null;
+        try {
+          const targetUrl = new URL(requestUrl, window.location.origin).href;
+          const cache = await caches.open(cacheName);
+          const res = await cache.match(targetUrl);
+          if (!res) return null;
+          return await res.text();
+        } catch (err) {
+          console.error('[Fixture] CacheStorage get error:', err ? (err.name + ': ' + err.message) : err);
+          return null;
+        }
+      },
+
+      // 6. Blob Storage / Object URLs (in-memory only — not a disk-persistent API)
+      setBlobStorage: (content) => {
+        try {
+          const blob = new Blob([content], { type: 'text/plain' });
+          const url = URL.createObjectURL(blob);
+          window._activeBlobUrl = url;
+          return true;
+        } catch (e) {
+          console.error('[Fixture] BlobStorage set error:', e);
+          return false;
+        }
+      },
+      // Real blob content readback — ForensicAuditor uses this instead of hardcoded blobPresent=true
+      // (FLAW 6 fix: verify the blob API actually worked, even though disk-purge is N/A)
+      getBlobStorage: async () => {
+        if (!window._activeBlobUrl) return null;
+        try {
+          const resp = await fetch(window._activeBlobUrl);
+          return await resp.text();
+        } catch (e) {
+          console.error('[Fixture] BlobStorage get error:', e);
+          return null;
+        }
+      }
+    };
+  </script>
+</body>
+</html>

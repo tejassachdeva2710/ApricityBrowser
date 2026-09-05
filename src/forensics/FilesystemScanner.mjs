@@ -65,11 +65,11 @@ export class FilesystemScanner {
    * Dynamically resolves Windows %APPDATA%, %LOCALAPPDATA%, %TEMP%, macOS Application Support,
    * and Linux ~/.config directories.
    * 
-   * @param {string} [appName='apricity-browser-ztr'] Application name or Electron folder
+   * @param {string} [appName='apricity-browser'] Application name or Electron folder
    * @param {object} [customPaths={}] Optional explicit paths (e.g. from Electron app.getPath)
    * @returns {object} Map of subsystem names to candidate directory paths
    */
-  static discoverRuntimePaths(appName = 'apricity-browser-ztr', customPaths = {}) {
+  static discoverRuntimePaths(appName = 'apricity-browser', customPaths = {}) {
     const platform = process.platform;
     const homedir = os.homedir();
     const tempDir = os.tmpdir();

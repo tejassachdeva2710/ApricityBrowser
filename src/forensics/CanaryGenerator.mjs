@@ -5,7 +5,7 @@
  * for Apricity Browser's ephemeral forensic artifact auditor.
  * 
  * Generates unique, non-guessable canary tokens per session across all storage
- * subsystems (cookies, localStorage, indexedDB, cache, cryptoVault key IDs, URLs, session UUIDs).
+ * subsystems (cookies, localStorage, sessionStorage, indexedDB, cache, blob, URLs, session UUIDs).
  * Converts tokens into multiple binary encodings (UTF-8, ASCII, UTF-16LE, hex, URL-encoded)
  * to detect residue in SQLite databases, LevelDB SSTables/logs, V8 byte caches, and memory dumps.
  */
@@ -108,7 +108,6 @@ export class CanaryGenerator {
       utf16le: utf16leBuffer,
       hex: hexString,
       urlEncoded,
-      // Raw string for regex / text lookups
       raw: token
     };
   }
@@ -148,18 +147,16 @@ export class CanaryGenerator {
    * Extracts all raw token strings and their multi-encoding Buffers from a canary set.
    * Useful for bulk search in FilesystemScanner.
    * 
-   * @param {object} canarySet Output of generateSessionCanarySet()
-   * @returns {Array<{ subsystem: string, token: string, encodings: object }>}
+   * @param {object} canarySet Output from generateSessionCanarySet()
+   * @returns {Array<object>} List of search patterns { subsystem, token, encodings }
    */
   static extractSearchPatterns(canarySet) {
-    if (!canarySet || !canarySet.tokens) {
-      return [];
-    }
+    if (!canarySet || !canarySet.tokens) return [];
 
-    return Object.values(canarySet.tokens).map(item => ({
-      subsystem: item.subsystem,
-      token: item.token,
-      encodings: item.encodings
+    return Object.values(canarySet.tokens).map(t => ({
+      subsystem: t.subsystem,
+      token: t.token,
+      encodings: t.encodings
     }));
   }
 }

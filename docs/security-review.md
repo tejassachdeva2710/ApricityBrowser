@@ -53,3 +53,7 @@ Every security claim in Apricity is evaluated against empirical evidence from au
 2. **Empirical Deletion vs Physical Wiping**:
    * Apricity proves that *test artifacts are not detectable in reachable filesystem and application memory structures* after session teardown.
    * Apricity does *not* claim that physical NAND flash transistors or OS kernel swap files have undergone military-grade degaussing.
+
+## Forensic Verification Standard
+
+The auditor verifies the absence of known test canaries from the filesystem surfaces it scans after a real Chromium session is destroyed. It does not prove complete forensic absence from physical hardware. The previous application-level cryptographic storage simulator (ZeroTrustRenderer) has been completely removed from the active architecture.

@@ -1,8 +1,8 @@
-﻿# Apricity Browser — Threat Model & Security Architecture
+# Apricity Browser — Threat Model & Security Architecture
 
-**Document Version:** 1.0.0  
+**Document Version:** 2.0.0  
 **Classification:** Security Architecture & Threat Specification  
-**Scope:** Apricity Zero Trust Rendering (ZTR) Core, Electron `<webview>` Partitioning, and Tor SOCKS5 Network Routing
+**Scope:** Apricity Ephemeral Session Architecture, Electron WebContentsView Partitioning (`sandbox: true`), and Tor SOCKS5 Network Routing
 
 ---
 
@@ -16,19 +16,18 @@ This document defines the formal threat model for Apricity: what assets the brow
 
 ## 2. Protected Assets
 
-Apricity manages and attempts to isolate the following assets:
+Apricity manages and isolates the following assets:
 
 | Asset | Description | Storage Layer |
 |---|---|---|
-| **Browsing Session State** | Tab URL history, DOM state, active render trees, and navigation history | Chromium Webview Process RAM |
-| **HTTP & Session Cookies** | Authentication tokens, session identifiers, and tracking cookies | Chromium `CookieStore` (RAM partition) & ZTR simulator `Map` |
-| **DOM Web Storage** | Key-value data stored via `localStorage` and `sessionStorage` | Chromium `DOMStorage` (LevelDB in RAM) & ZTR simulator `Map` |
-| **IndexedDB Databases** | Structured client-side databases stored by web applications | Chromium `IndexedDB` (LevelDB in RAM) & ZTR simulator `Map` |
+| **Browsing Session State** | Tab URL history, DOM state, active render trees, and navigation history | Chromium WebContentsView Process RAM |
+| **HTTP & Session Cookies** | Authentication tokens, session identifiers, and tracking cookies | Chromium `CookieStore` (ephemeral RAM partition) |
+| **DOM Web Storage** | Key-value data stored via `localStorage` and `sessionStorage` | Chromium `DOMStorage` (LevelDB in ephemeral RAM partition) |
+| **IndexedDB Databases** | Structured client-side databases stored by web applications | Chromium `IndexedDB` (LevelDB in ephemeral RAM partition) |
 | **HTTP & Code Cache** | Cached images, stylesheets, scripts, and compiled V8 bytecode | Chromium in-memory cache & V8 isolate heap |
 | **Service Workers & Blobs** | Background worker registrations and in-memory binary Blob handles | Chromium ServiceWorker database & Blob storage in RAM |
-| **Cryptographic Session Keys** | Ephemeral AES-256-GCM symmetric keys generated per session UUID | V8 WebCrypto `CryptoKey` handles (`extractable: false`) |
 | **Network Routing Identity** | User origin IP address and DNS queries | Localhost loopback → Tor SOCKS5 daemon (`127.0.0.1:9150/9050`) |
-| **Ephemeral Session Context** | Correlation between concurrent tabs and historical browsing sessions | Tab-specific UUID v4 and context partition strings |
+| **Ephemeral Session Context** | Correlation between concurrent tabs and historical browsing sessions | Tab-specific UUID v4 and ephemeral partition strings |
 
 ---
 
@@ -68,7 +67,7 @@ Apricity considers the following adversary capabilities:
    - *Goal*: Correlate user activity between Tab A (e.g. an authenticated account) and Tab B (e.g. an untrusted site), or access Tab A's in-memory storage from Tab B.
    - *Threat Level*: High.
 3. **Compromised Guest Renderer Process**:
-   - *Goal*: A renderer exploited via a Blink memory corruption vulnerability attempting to access Node.js APIs or cross into other guest webviews.
+   - *Goal*: A renderer exploited via a Blink memory corruption vulnerability attempting to access Node.js APIs or cross into other guest views.
    - *Threat Level*: High.
 4. **Passive Local Network Observers**:
    - *Goal*: Intercept plaintext HTTP traffic, monitor visited domains via cleartext DNS lookups, or log destination IP addresses.
@@ -94,54 +93,46 @@ Apricity considers the following adversary capabilities:
 
 ## 4. Security Boundaries
 
-Apricity enforces isolation across six distinct architectural boundaries:
+Apricity enforces isolation across four distinct architectural boundaries:
 
 ```
                       ┌─────────────────────────────────┐
                       │    Host OS & Platform Memory    │
                       └────────────────┬────────────────┘
-                                       │ [Boundary 6: OS / Filesystem]
+                                       │ [Boundary 4: OS / Filesystem]
                       ┌────────────────▼────────────────┐
                       │    Electron Main Shell Host     │
-                      └───────┬─────────────────┬───────┘
-                              │                 │
-     [Boundary 3: ZTR Engine] │                 │ [Boundary 2: Electron Partition]
-     ┌────────────────────────▼──┐           ┌──▼────────────────────────┐
-     │ ZeroTrustRenderer Core    │           │ Ephemeral Webview Session │
-     │ (In-Memory Simulator Map) │           │ (Chromium Blink Engine)   │
-     └────────────┬──────────────┘           └──┬────────────────────────┘
-                  │ [Boundary 4: WebCrypto]     │ [Boundary 1: Web Content]
-     ┌────────────▼──────────────┐           ┌──▼────────────────────────┐
-     │ CryptoVault (AES-256-GCM) │           │ Web Content (DOM / JS)    │
-     └───────────────────────────┘           └──┬────────────────────────┘
-                                                │ [Boundary 5: Proxy / Tor]
-                                             ┌──▼────────────────────────┐
-                                             │ Tor SOCKS5 Proxy Daemon   │
-                                             └───────────────────────────┘
+                      │         (sandbox: true)         │
+                      └────────────────┬────────────────┘
+                                       │ [Boundary 2: Electron Partition]
+                      ┌────────────────▼────────────────┐
+                      │    Chromium WebContentsView     │
+                      │ (Ephemeral In-Memory Partition) │
+                      └────────────────┬────────────────┘
+                                       │ [Boundary 1: Web Content]
+                      ┌────────────────▼────────────────┐
+                      │    Web Content (DOM / JS)       │
+                      └────────────────┬────────────────┘
+                                       │ [Boundary 3: Proxy / Tor]
+                      ┌────────────────▼────────────────┐
+                      │    Tor SOCKS5 Proxy Daemon      │
+                      └─────────────────────────────────┘
 ```
 
-### Boundary 1: Web Content Boundary (Guest Webview Isolation)
-* **What is Enforced**: Web content executes inside Chromium `<webview>` guest renderers. `nodeIntegration` is disabled (`false`), `contextIsolation` is enabled (`true`), and permissions default to deny (`cb(false)`). Guest web pages cannot access Node.js runtime primitives or Electron internal APIs.
-* **What is NOT Enforced**: The parent `BrowserWindow` runs with `sandbox: false` (required by Electron for `<webview>` hosting). If a severe Chromium zero-day sandbox escape is executed from guest web content, the host process could be compromised.
+### Boundary 1: Web Content Boundary (WebContentsView Isolation)
+* **What is Enforced**: Web content executes inside native Chromium `WebContentsView` instances. `nodeIntegration` is disabled (`false`), `contextIsolation` is enabled (`true`), `sandbox: true` is enforced across all windows and views, and permissions default to deny (`cb(false)`). Guest web pages cannot access Node.js runtime primitives or Electron internal APIs.
+* **What is NOT Enforced**: Zero-day renderer memory corruption vulnerabilities within Chromium Blink/V8 remain a threat until patched by upstream Chromium/Electron updates.
 
 ### Boundary 2: Electron Session / Partition Boundary (Chromium Storage)
 * **What is Enforced**: Every tab is assigned a unique `sessionUUID` mapping to an in-memory session partition (`ephemeral-${sessionUUID}`). Partitions are instantiated with `{ cache: false }`. On tab closure, `clearStorageData()` and `clearCache()` are triggered asynchronously to purge Chromium's internal partition state.
 * **What is NOT Enforced**: Chromium internally manages SQLite/LevelDB structures in memory. User-space JavaScript cannot directly verify the exact microsecond when Chromium deallocates internal C++ buffers in RAM.
 
-### Boundary 3: ZeroTrustRenderer Application Abstraction (ZTR Engine)
-* **What is Enforced**: Application-level state machine in `ZeroTrustRenderer.mjs` stores key-value pairs in memory `Map` instances (`_ephemeralStorageStores`). Context IDs are strictly separated; closing a tab deletes the map reference and marks the session destroyed.
-* **What is NOT Enforced**: This is an application-level test and state abstraction. Live web content DOM storage (e.g. `document.cookie` set by websites inside webviews) operates directly within Chromium's C++ storage subsystem (Boundary 2) and does **not** route through the ZTR JavaScript Map abstraction.
-
-### Boundary 4: WebCrypto Key Boundary (`ZTRCryptoVault`)
-* **What is Enforced**: Symmetric keys are generated via `crypto.subtle.generateKey` using AES-256-GCM with `extractable: false`. Script execution within the application cannot export raw key bytes via `crypto.subtle.exportKey()`. On tab closure, key references are deleted from the vault Map.
-* **What is NOT Enforced**: Non-extractability is an API-level guarantee enforced by the V8/Node.js JavaScript engine. It does not prevent a native process debugger, root user, or kernel memory inspector from reading raw cryptographic key bytes in process memory.
-
-### Boundary 5: Network / Proxy Boundary (Tor SOCKS5 Routing)
+### Boundary 3: Network / Proxy Boundary (Tor SOCKS5 Routing)
 * **What is Enforced**: Browser network routing is configured to route through Tor SOCKS5 (`127.0.0.1:9150/9050`). Chromium command-line switches (`host-resolver-rules = 'MAP * ~NOTFOUND , EXCLUDE 127.0.0.1'`) instruct Chromium not to resolve hostnames through the local OS DNS resolver. If the Tor proxy is offline, connections fail closed.
 * **What is NOT Enforced**: By default, all tabs sharing the same Tor SOCKS port share the Tor daemon's circuit pool. Without per-tab `IsolateSOCKSAuth` credentials, concurrent tabs may share the same Tor exit relay. Tor routing provides network pseudonymity, not absolute application-layer anonymity against browser fingerprinting.
 
-### Boundary 6: OS / Filesystem Boundary
-* **What is Enforced**: The application enables switches `disable-http-cache` and `disk-cache-size: 1`. Automated deep scans verify that no persistent tab partition folders are created on disk under `%APPDATA%\apricity-browser-ztr\Partitions`.
+### Boundary 4: OS / Filesystem Boundary
+* **What is Enforced**: The application enables switches `disable-http-cache` and `disk-cache-size: 1`. Automated deep scans verify that no persistent tab partition folders are created on disk under `%APPDATA%\...\Partitions`.
 * **What is NOT Enforced**: OS-level artifacts (NTFS transaction metadata in `$LogFile` and `$UsnJrnl`, OS crash logs, Windows Prefetch, and virtual memory paging in `pagefile.sys`) are managed by the operating system kernel and cannot be purged or zeroed by user-space applications.
 
 ---
@@ -186,5 +177,9 @@ Apricity classifies all security properties using four precise categories:
 ## 7. Operational & Development Guidelines
 
 1. **Never Make Absolute Forensic Claims**: Do not claim "zero disk trace", "unrecoverable browsing", or "complete RAM wiping". Use precise terminology such as "application-level ephemeral cleanup" or "within the scanned filesystem surface".
-2. **Preserve Architectural Honesty**: Clearly distinguish between `ZeroTrustRenderer` (the in-memory cryptographic test and simulator layer) and native Chromium `<webview>` storage.
+2. **Preserve Architectural Honesty**: Clearly distinguish between `Chromium Ephemeral Partition Engine` (the in-memory cryptographic test and simulator layer) and native Chromium `<webview>` storage.
 3. **Validate Changes Empirically**: Any security assertion added to documentation or codebase must be backed by an automated test in `tests/` or a forensic check in `src/forensics/`.
+
+## Forensic Limitations
+
+The auditor verifies the absence of known test canaries from the filesystem surfaces it scans after a real Chromium session is destroyed. It does not prove complete forensic absence from physical hardware.
