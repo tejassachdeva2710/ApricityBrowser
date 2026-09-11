@@ -1,4 +1,4 @@
-﻿# Contributing to Apricity Browser
+# Contributing to Apricity Browser
 
 Thank you for your interest in contributing to **Apricity Browser**!
 
@@ -44,15 +44,15 @@ npm start
 Apricity maintains a multi-tiered test suite covering lifecycle operations, adversarial isolation, binary scanner precision, and forensic residue evaluation.
 
 ```bash
-# Run standard test suite (Lifecycle + Adversarial + Forensic Auditor)
+# Run standard test suite (Live Electron + Level 3 Security + Forensic Auditor)
 npm test
 
 # Run individual test suites
-npm run test:lifecycle      # ZTR in-memory engine and preferences tests
-npm run test:adversarial    # Adversarial session, partition, and crypto tests
-npm run test:forensic       # Forensic auditor unit & integration tests
-npm run test:scanner        # Binary scanner multi-encoding & buffer stress tests
-npm run test:stress         # Challenger adversarial residue injection tests
+npm run test:security     # Level 3 Electron security foundation tests
+npm run test:electron     # Live WebContentsView runtime partition isolation tests
+npm run test:forensic     # Forensic auditor unit & integration tests
+npm run test:scanner      # Binary scanner multi-encoding & buffer stress tests
+npm run test:stress       # Challenger adversarial residue injection tests
 ```
 
 ---
@@ -79,10 +79,8 @@ npm run forensic -- --out audit-results.json
 
 ## 5. Coding & Architecture Expectations
 
-* **Boundary Awareness**: Understand the distinction between:
-  * **Boundary 1 (ZTR Simulator)**: In-memory JavaScript `Map` storage with WebCrypto AES-256-GCM encryption.
-  * **Boundary 2 (Native Webview Storage)**: Electron/Chromium in-memory session partitions (`session.fromPartition('ephemeral-UUID')`). Webview DOM storage is managed by Chromium in RAM, not passed through ZTR's WebCrypto wrapper.
-* **Preserve Security Defaults**: Never enable `nodeIntegration`, never disable `contextIsolation`, and never bypass permission denial without explicit architectural justification.
+* **Sandboxed Architecture**: Understand that guest web content executes directly inside sandboxed `WebContentsView` instances with in-memory session partitions (`session.fromPartition('ephemeral-UUID', { cache: false })`). No guest content has access to Node.js or internal Electron APIs.
+* **Preserve Security Defaults**: Never enable `nodeIntegration`, never disable `contextIsolation`, and never bypass permission denial or navigation bounds without explicit architectural justification.
 * **Clean Code**: Keep changes minimal, focused, and well-documented. Avoid adding large dependencies.
 
 ---

@@ -3,9 +3,8 @@
 [![Version: v0.1.0](https://img.shields.io/badge/Version-v0.1.0-blue.svg)](CHANGELOG.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Node: v18+](https://img.shields.io/badge/Node-v18%2B-green.svg)](https://nodejs.org/)
-[![Electron: v34](https://img.shields.io/badge/Electron-v34-blueviolet.svg)](https://www.electronjs.org/)
-[![Tests: 47 Passed](https://img.shields.io/badge/Tests-47%20Passed-success.svg)](tests/)
-[![ZTR: Ephemeral Isolation](https://img.shields.io/badge/ZTR-Ephemeral%20Isolation-orange.svg)](docs/threat-model.md)
+[![Tests: 86 Passed](https://img.shields.io/badge/Tests-86%20Passed-success.svg)](tests/)
+[![Isolation: Ephemeral](https://img.shields.io/badge/Isolation-Ephemeral-blue.svg)](docs/threat-model.md)
 
 > *An experimental desktop privacy browser exploring ephemeral session isolation, disposable browser state, controlled network proxy routing, and empirically tested session destruction.*
 
@@ -25,7 +24,7 @@ Standard web browsers treat privacy as an afterthought. Every time you browse th
 
 **Apricity Browser reverses this paradigm by treating browser state as disposable and temporary.**
 
-Every tab in Apricity is allocated an independent ephemeral session identity, isolated in memory, and routed through a controlled Tor SOCKS5 proxy with remote DNS resolution. When a tab reaches its user-configured countdown timer (or is closed manually), an automated teardown lifecycle executes: session keys are dereferenced, in-memory partition stores are cleared, and active renderer state is purged.
+Every tab in Apricity is allocated an independent ephemeral session identity, isolated in memory, and routed through a controlled Tor SOCKS5 proxy with remote DNS resolution. When a tab reaches its user-configured countdown timer (or is closed manually), an automated teardown lifecycle executes: the WebContentsView is closed, in-memory partition stores and caches are cleared (`clearStorageData()` & `clearCache()`), and active renderer state is destroyed.
 
 Rather than relying on unprovable marketing claims, Apricity pairs its architecture with an automated **Forensic Artifact Auditor** that deep-scans the filesystem to empirically measure what is destroyed and explicitly catalog what remains outside application control.
 
@@ -33,7 +32,7 @@ Rather than relying on unprovable marketing claims, Apricity pairs its architect
 
 ## 🏗️ Architecture
 
-Apricity separates its security responsibilities across four distinct layers, maintaining a strict distinction between the **ZTR in-memory simulator** and **native Chromium session storage**:
+Apricity enforces defense-in-depth across the Electron main process, isolated WebContentsView guest renderers, and native Chromium ephemeral session partitions:
 
 ```mermaid
 graph TD
@@ -68,11 +67,15 @@ Apricity evaluates all security properties against empirical test evidence:
 
 | Property | Status | Empirical Evidence & Architectural Justification |
 |---|:---:|---|
-| **Session Identity Isolation** | **VERIFIED** | Verified by `test_electron_live.mjs` (UUID v4 generation and non-overlapping in-memory partition strings). |
-| **Chromium Native Partition Storage** | **VERIFIED** | Verified by `test_electron_live.mjs` (ephemeral partition allocation, cross-renderer cookie/localStorage isolation). |
-| **Session Destruction Lifecycle** | **VERIFIED** | Verified by `test_electron_live.mjs` & `test_forensic_auditor.mjs` (`clearStorageData()`, `clearCache()`, WebContentsView destruction). |
+| **Session Identity Isolation** | **VERIFIED** | Verified by `tests/test_electron_live.mjs` (UUID v4 generation and non-overlapping in-memory partition strings). |
+| **Chromium Native Partition Storage** | **VERIFIED** | Verified by `tests/test_electron_live.mjs` (ephemeral partition allocation, cross-renderer cookie and localStorage isolation in RAM). |
+| **Live DOM IndexedDB Isolation** | **NOT CURRENTLY TESTED** | Relies on Chromium partition separation in RAM; not currently covered by automated tests. |
+| **Live DOM sessionStorage Isolation** | **NOT CURRENTLY TESTED** | In-memory tab construct; not currently covered by automated tests (no disk persistence guarantees). |
+| **Session Destruction Lifecycle** | **VERIFIED** | Verified by `tests/test_electron_live.mjs` & `tests/test_forensic_auditor.mjs` (`clearStorageData()`, `clearCache()`, WebContentsView destruction). |
+| **Level 3 Security Foundation** | **VERIFIED** | Verified by `tests/test_level3_security.mjs` (will-navigate bounds, window.open denial, IPC URL validation, will-download denial, safe DOM textContent, strict CSP, synchronous permission checks). |
+| **Default Permission Denial** | **VERIFIED** *(API Layer)* | Verified by `tests/test_level3_security.mjs` (`setPermissionRequestHandler` configured to deny standard Web API requests). |
+| **Tor SOCKS5 Proxy Configuration** | **UNVERIFIED / NOT CURRENTLY TESTED** | Automated Tor configuration and network isolation are scheduled for Level 4. |
 | **Forensic Filesystem Absence** | **VERIFIED** *(Scanned Surface)* | Verified by `npm run forensic` (deep binary scan of 68 runtime files across userData and partition directories detected 0 residual canaries). |
-| **Default Permission Denial** | **VERIFIED** *(API Layer)* | Verified by `test_electron_live.mjs` (`setPermissionRequestHandler` returns `false` by default). |
 | **Physical RAM & Heap Zeroization** | **NOT PROVIDED** | JS GC frees heap references for reuse; it does not physically zero deallocated memory (`UNVERIFIED_V8_HEAP_RAW_INACCESSIBLE`). |
 | **Protection from Memory Dumpers** | **NOT PROVIDED** | Process memory can still be inspected by local process debuggers or root malware with elevated privileges. |
 | **Absolute Anonymity via Tor** | **NOT PROVIDED** | Tor SOCKS5 proxy provides network pseudonymity, not mathematical anonymity against traffic correlation or fingerprinting. |
@@ -112,7 +115,7 @@ npm run forensic -- --md --verbose
 Run the automated test suites covering WebContentsView architecture, live Electron execution, binary scanner precision, and adversarial stress tests:
 
 ```bash
-# Run core test suites (Live Electron + Forensic Auditor)
+# Run core test suites (Live Electron + Level 3 Security + Forensic Auditor)
 npm test
 
 # Run live Electron & Chromium runtime verification harness

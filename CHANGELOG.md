@@ -1,9 +1,29 @@
-﻿# Changelog
+# Changelog
 
 All notable changes to the **Apricity Browser** project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+---
+
+## [0.2.0] - 2026-09-06
+
+### Changed & Hardened
+* **Architecture Migration**: Transitioned from `<webview>` to sandboxed `WebContentsView` instances (`sandbox: true`, `contextIsolation: true`, `nodeIntegration: false`).
+* **Level 3 Security Foundation**:
+  * Added `will-navigate` scheme whitelisting to block non-http(s)/about/data navigations.
+  * Added `setWindowOpenHandler` returning `{ action: 'deny' }` on all guest views and main window.
+  * Added privileged main-process IPC navigation URL validation (`isAllowedIpcUrl`).
+  * Added `will-download` event prevention to block unauthorized local filesystem writes.
+  * Eliminated all `innerHTML` sinks in `ui-controller.js`; adopted safe DOM node creation with `textContent`.
+  * Added strict Content Security Policy `<meta>` tag to `index.html` blocking inline scripts and `eval()`.
+  * Added synchronous permission check denial via `setPermissionCheckHandler`.
+* **Documentation & Legacy Claims Cleanup**:
+  * Purged all false legacy ZTR simulator claims and deleted-code references across `README.md` and `docs/`.
+  * Documented accurate single-tier Chromium ephemeral partition isolation architecture.
+* **Automated Tests**:
+  * Added `tests/test_level3_security.mjs` verifying all 7 Level 3 security properties.
 
 ---
 

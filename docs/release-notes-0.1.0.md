@@ -1,4 +1,4 @@
-﻿# Apricity Browser v0.1.0 Release Notes
+# Apricity Browser v0.1.0 Release Notes
 
 **Release Date**: August 30, 2026  
 **Status**: Experimental / Research Prototype  
@@ -14,7 +14,7 @@
 
 ## 🌟 Overview
 
-Modern web browsers persist large amounts of user data to disk by default. Apricity Browser explores an alternative architecture where tabs are treated as ephemeral, short-lived containers. Each tab runs inside an independent in-memory partition, backed by non-extractable session keys, with automated session destruction upon closure or timer expiry.
+Modern web browsers persist large amounts of user data to disk by default. Apricity Browser explores an alternative architecture where tabs are treated as ephemeral, short-lived containers. Each tab runs inside an independent in-memory partition with automated session destruction upon closure or timer expiry.
 
 Apricity pairs its architecture with an automated **Forensic Artifact Auditor** that deep-scans the filesystem and runtime state to empirically measure what data is destroyed and explicitly catalog what remains outside application control.
 
@@ -27,9 +27,9 @@ Apricity pairs its architecture with an automated **Forensic Artifact Auditor** 
 * Chromium DOM storage (cookies, `localStorage`, `indexedDB`, `sessionStorage`) is managed in RAM with `getStoragePath() === null`.
 * Disk caching and history persistence are disabled.
 
-### 2. WebCrypto Session Key Isolation
-* The ZTR Crypto Vault generates non-extractable (`extractable: false`) AES-256-GCM keys per session.
-* Tab closure dereferences session keys, rendering encrypted application records unrecoverable.
+### 2. Sandboxed WebContentsView Architecture
+* Native Chromium `WebContentsView` instances run with `sandbox: true`, `contextIsolation: true`, and `nodeIntegration: false`.
+* Strict navigation bounds (`will-navigate`), popup suppression (`setWindowOpenHandler`), and IPC URL validation isolate the guest from host capabilities.
 
 ### 3. Tor SOCKS5 Network Routing
 * Configured to route web traffic through a local Tor SOCKS5 proxy (`127.0.0.1:9150`).
@@ -53,7 +53,7 @@ npm test
 
 # Live Electron & Chromium Runtime Harness
 npm run test:electron
-# Result: 8 Passed, 0 Failed (Live DOM storage, IndexedDB, and Cookie isolation)
+# Result: 5 Passed, 0 Failed (Live DOM localStorage and Cookie partition isolation)
 
 # Forensic Artifact Auditor
 npm run forensic

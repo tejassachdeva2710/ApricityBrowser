@@ -143,7 +143,7 @@ Apricity classifies all security properties using four precise categories:
 
 * **VERIFIED**: The property is experimentally demonstrated and continuously validated by automated test suites or forensic binary scans.
 * **PARTIALLY VERIFIED**: The property is verified at the application/API layer, but full end-to-end enforcement depends on runtime conditions (such as live Electron GUI execution or active network daemons).
-* **UNVERIFIED**: The property cannot be reliably verified from user-space automated tooling due to operating system or hardware limitations. An explicit justification code is documented.
+* **UNVERIFIED / NOT CURRENTLY TESTED**: The property is either not currently covered by an automated test in the repository, or cannot be reliably verified from user-space automated tooling due to operating system or hardware limitations. An explicit justification or note is documented.
 * **NOT PROVIDED**: The property is explicitly outside Apricity's security model and is not provided by the architecture.
 
 ---
@@ -152,21 +152,24 @@ Apricity classifies all security properties using four precise categories:
 
 | Property | Status | Empirical Evidence & Architectural Justification |
 |---|:---:|---|
-| **Session Identity Uniqueness** | **VERIFIED** | Verified by `test_adversarial_isolation.mjs` (UUID v4 generation and non-overlapping partition strings). |
-| **ZTR In-Memory Storage Isolation** | **VERIFIED** | Verified by `test_adversarial_isolation.mjs` (cross-tab storage separation across cookies, localStorage, indexedDB, cache). |
-| **Raw Storage Ciphertext Protection** | **VERIFIED** | Verified by `test_adversarial_isolation.mjs` (raw ZTR store contains `{ iv, ciphertext }`, no plaintext). |
-| **WebCrypto Non-Extractable Key Gen** | **VERIFIED** | Verified by `test_forensic_auditor.mjs` (`extractable: false` rejects `exportKey` API calls). |
-| **Cryptographic Cross-Session Decryption Rejection** | **VERIFIED** | Verified by `test_adversarial_isolation.mjs` (AES-GCM authentication tag mismatch rejection). |
-| **Post-Destruction Invalidation in ZTR** | **VERIFIED** | Verified by `test_ztr_lifecycle.mjs` and `test_forensic_auditor.mjs` (key deletion prevents subsequent decryption). |
+| **Session Identity Uniqueness** | **VERIFIED** | Verified by `tests/test_electron_live.mjs` (UUID v4 generation and non-overlapping partition strings). |
+| **Chromium Native Partition Storage Isolation** | **VERIFIED** | Verified by `tests/test_electron_live.mjs` (cross-renderer cookie and localStorage isolation across partitions in RAM). |
+| **Live DOM IndexedDB Isolation** | **UNVERIFIED / NOT CURRENTLY TESTED** | Cross-partition IndexedDB isolation relies on Chromium partition separation in RAM, but is not currently tested in the automated test suite. |
+| **Live DOM sessionStorage Isolation** | **UNVERIFIED / NOT CURRENTLY TESTED** | `sessionStorage` partition separation is not verified by current automated tests. Note that sessionStorage is an in-memory window/tab construct without persistent disk guarantees. |
+| **Navigation Bounds Enforcement** | **VERIFIED** | Verified by `tests/test_level3_security.mjs` (`will-navigate` blocks non-http(s)/about/data schemes). |
+| **Window Creation Bounds** | **VERIFIED** | Verified by `tests/test_level3_security.mjs` (`setWindowOpenHandler` denies all guest popups and new windows). |
+| **IPC Navigation URL Validation** | **VERIFIED** | Verified by `tests/test_level3_security.mjs` (main process validates navigation URLs via `isAllowedIpcUrl`). |
+| **Download Denial Enforcement** | **VERIFIED** | Verified by `tests/test_level3_security.mjs` (`will-download` cancels downloads via `preventDefault()`). |
+| **Safe UI DOM Construction** | **VERIFIED** | Verified by `tests/test_level3_security.mjs` (zero `innerHTML` in UI controller; safe textContent rendering). |
+| **Strict UI Shell CSP** | **VERIFIED** | Verified by `tests/test_level3_security.mjs` (meta CSP blocks `eval()` and inline scripts in shell). |
+| **Synchronous Permission Denial** | **VERIFIED** | Verified by `tests/test_level3_security.mjs` (`setPermissionCheckHandler` returns `false`). |
+| **Default Permission Denial (API Layer)** | **VERIFIED** | Verified by `tests/test_level3_security.mjs` (`setPermissionRequestHandler` is configured on ephemeral sessions to deny standard Web API permission requests; exercised in Level 3 test harness). |
 | **Ephemeral Partition Disk Non-Persistence** | **VERIFIED** | Verified by `npm run forensic` (no persistent folders created under `%APPDATA%\...\Partitions`). |
-| **UserData Filesystem Canary Absence** | **VERIFIED** | Verified by `npm run forensic` (deep binary scan of 45 runtime files in `userData` detects 0 residual canary bytes). |
-| **Default Permission Denial (API Layer)** | **VERIFIED** | Verified by `test_adversarial_isolation.mjs` (`setPermissionRequestHandler` returns `false` for all standard APIs). |
-| **Tor Proxy Configuration & Port Probing** | **VERIFIED** | Verified by `test_adversarial_isolation.mjs` (SOCKS5 proxy switches and remote DNS rule validation). |
-| **Chromium Native Partition Storage Isolation** | **PARTIALLY VERIFIED** | Verified at configuration level; live Blink SQLite/LevelDB webview DOM storage requires live Electron GUI execution. |
-| **Live Webview Permission Suppression** | **PARTIALLY VERIFIED** | Verified at session handler level; live Blink UI prompt suppression requires live BrowserWindow runtime. |
-| **Live Tor Circuit Routing & Stream Isolation** | **PARTIALLY VERIFIED** | Verified via configuration strings and port probing; end-to-end exit relay routing requires live Tor daemon and external network connectivity. |
+| **UserData Filesystem Canary Absence** | **VERIFIED** | Verified by `npm run forensic` (deep binary scan across runtime files in temporary `userData` detects 0 residual canary bytes). |
+| **Tor SOCKS5 Proxy Configuration** | **UNVERIFIED / NOT CURRENTLY TESTED** | Automated Tor configuration, `proxyRules`, and `host-resolver-rules` validation are not covered by the current test suite. Tor integration and traffic isolation are Level 4 work. |
+| **Live Tor Circuit Routing & Stream Isolation** | **UNVERIFIED / NOT CURRENTLY TESTED** | End-to-end Tor circuit exit routing and stream isolation require an active external Tor daemon; scheduled for Level 4. |
 | **Physical RAM & V8 Heap Zeroization** | **NOT PROVIDED** | JS GC frees object references for reuse; it does not physically zero deallocated memory (`UNVERIFIED_V8_HEAP_RAW_INACCESSIBLE`). |
-| **Immunity to Process Memory Inspection** | **NOT PROVIDED** | Non-extractable WebCrypto keys can still be extracted by native process debuggers or root malware with host memory access. |
+| **Immunity to Process Memory Inspection** | **NOT PROVIDED** | Process memory can still be inspected by native process debuggers or root malware with host memory access. |
 | **Absolute Anonymity via Tor** | **NOT PROVIDED** | SOCKS5 proxy routing masks IP address, but does not provide mathematical anonymity against global traffic correlation or fingerprinting. |
 | **SSD Physical NAND Flash Zeroization** | **UNVERIFIED** | Solid-state drive wear-leveling (FTL) writes out-of-place; physical cells are inaccessible (`UNVERIFIED_PHYSICAL_FTL_UNREACHABLE`). |
 | **OS Virtual Memory Pagefile Exclusion** | **UNVERIFIED** | OS Virtual Memory Manager may page process memory to `pagefile.sys` under RAM exhaustion (`UNVERIFIED_KERNEL_PAGING_INACCESSIBLE`). |
@@ -177,7 +180,7 @@ Apricity classifies all security properties using four precise categories:
 ## 7. Operational & Development Guidelines
 
 1. **Never Make Absolute Forensic Claims**: Do not claim "zero disk trace", "unrecoverable browsing", or "complete RAM wiping". Use precise terminology such as "application-level ephemeral cleanup" or "within the scanned filesystem surface".
-2. **Preserve Architectural Honesty**: Clearly distinguish between `Chromium Ephemeral Partition Engine` (the in-memory cryptographic test and simulator layer) and native Chromium `<webview>` storage.
+2. **Preserve Architectural Honesty**: Accurately reflect the WebContentsView architecture and ephemeral partition isolation without claiming in-memory cryptographic storage layers.
 3. **Validate Changes Empirically**: Any security assertion added to documentation or codebase must be backed by an automated test in `tests/` or a forensic check in `src/forensics/`.
 
 ## Forensic Limitations
