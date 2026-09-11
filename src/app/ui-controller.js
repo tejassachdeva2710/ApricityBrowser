@@ -158,9 +158,12 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function renderDestroyedList() {
-    destroyedList.innerHTML = '';
+    destroyedList.replaceChildren();
     if (recentlyDestroyed.length === 0) {
-      destroyedList.innerHTML = '<li class="destroyed-empty">No tabs destroyed yet.</li>';
+      const emptyLi = document.createElement('li');
+      emptyLi.className = 'destroyed-empty';
+      emptyLi.textContent = 'No tabs destroyed yet.';
+      destroyedList.appendChild(emptyLi);
       return;
     }
     recentlyDestroyed.forEach(item => {
@@ -168,13 +171,28 @@ document.addEventListener('DOMContentLoaded', () => {
       try { domain = new URL(item.url).hostname.replace('www.', ''); } catch (_) {}
       const li = document.createElement('li');
       li.className = 'destroyed-item';
-      li.innerHTML = `
-        <div class="dest-icon">${domain.charAt(0).toUpperCase()}</div>
-        <div class="dest-info">
-          <div class="dest-url">${domain}</div>
-          <div class="dest-time">Destroyed ${timeAgo(item.at)}</div>
-        </div>
-      `;
+
+      const iconDiv = document.createElement('div');
+      iconDiv.className = 'dest-icon';
+      iconDiv.textContent = (domain.charAt(0) || '?').toUpperCase();
+
+      const infoDiv = document.createElement('div');
+      infoDiv.className = 'dest-info';
+
+      const urlDiv = document.createElement('div');
+      urlDiv.className = 'dest-url';
+      urlDiv.textContent = domain;
+
+      const timeDiv = document.createElement('div');
+      timeDiv.className = 'dest-time';
+      timeDiv.textContent = `Destroyed ${timeAgo(item.at)}`;
+
+      infoDiv.appendChild(urlDiv);
+      infoDiv.appendChild(timeDiv);
+
+      li.appendChild(iconDiv);
+      li.appendChild(infoDiv);
+
       destroyedList.appendChild(li);
     });
   }
@@ -183,7 +201,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // ACTIVE TABS LIST (new tab page)
   // ═══════════════════════════════
   function renderActiveTabsList() {
-    activeTabsList.innerHTML = '';
+    activeTabsList.replaceChildren();
     tabs.forEach((rec, tabId) => {
       let label = rec.title || 'New Tab';
       if (rec.url && rec.url !== 'newtab') {
@@ -191,16 +209,33 @@ document.addEventListener('DOMContentLoaded', () => {
       }
       const card = document.createElement('div');
       card.className = 'atl-card';
-      card.innerHTML = `
-        <div class="atl-fav">${label.charAt(0).toUpperCase()}</div>
-        <div class="atl-title">${label}</div>
-        <div class="atl-timer">${fmt(rec.remaining)}</div>
-        <button class="atl-x" data-tab="${tabId}">×</button>
-      `;
-      card.querySelector('.atl-x').addEventListener('click', (e) => {
+
+      const favDiv = document.createElement('div');
+      favDiv.className = 'atl-fav';
+      favDiv.textContent = (label.charAt(0) || '?').toUpperCase();
+
+      const titleDiv = document.createElement('div');
+      titleDiv.className = 'atl-title';
+      titleDiv.textContent = label;
+
+      const timerDiv = document.createElement('div');
+      timerDiv.className = 'atl-timer';
+      timerDiv.textContent = fmt(rec.remaining);
+
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'atl-x';
+      closeBtn.dataset.tab = tabId;
+      closeBtn.textContent = '×';
+      closeBtn.addEventListener('click', (e) => {
         e.stopPropagation();
         destroyTab(tabId);
       });
+
+      card.appendChild(favDiv);
+      card.appendChild(titleDiv);
+      card.appendChild(timerDiv);
+      card.appendChild(closeBtn);
+
       activeTabsList.appendChild(card);
     });
   }
@@ -231,15 +266,27 @@ document.addEventListener('DOMContentLoaded', () => {
         isNewTab:    !targetUrl
       };
 
-      // Build tab UI element
+      // Build tab UI element (Safe DOM Construction)
       const tabEl = document.createElement('div');
       tabEl.className = 'tab-item';
       tabEl.dataset.tabId = tabData.tabId;
-      tabEl.innerHTML = `
-        <div class="tab-favicon">✦</div>
-        <span class="tab-title-text">New Tab</span>
-        <button class="tab-close">×</button>
-      `;
+
+      const favDiv = document.createElement('div');
+      favDiv.className = 'tab-favicon';
+      favDiv.textContent = '✦';
+
+      const titleSpan = document.createElement('span');
+      titleSpan.className = 'tab-title-text';
+      titleSpan.textContent = 'New Tab';
+
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'tab-close';
+      closeBtn.textContent = '×';
+
+      tabEl.appendChild(favDiv);
+      tabEl.appendChild(titleSpan);
+      tabEl.appendChild(closeBtn);
+
       tabBar.appendChild(tabEl);
       rec.tabEl = tabEl;
 

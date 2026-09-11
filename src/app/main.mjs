@@ -178,6 +178,7 @@ async function createWindow() {
     }
   });
 
+  mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   mainWindow.loadFile(path.join(__dirname, 'index.html'));
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -198,6 +199,30 @@ ipcMain.on('window:close', () => mainWindow?.close());
 // ── Pull-based Tor status (renderer queries at startup) ──
 ipcMain.handle('tor:get-status', () => ({ connected: torConnected, port: activeTorPort }));
 
+// Allowed schemes for renderer-initiated navigation (L3-1)
+const ALLOWED_NAV_PROTOCOLS = new Set(['http:', 'https:', 'data:', 'about:']);
+
+function isAllowedNavigationUrl(navUrl) {
+  if (navUrl === 'about:blank') return true;
+  try {
+    const parsed = new URL(navUrl);
+    return ALLOWED_NAV_PROTOCOLS.has(parsed.protocol);
+  } catch (_) {
+    return false;
+  }
+}
+
+// Allowed schemes for privileged IPC navigation requests (strictly http/https) (L3-3)
+function isAllowedIpcUrl(rawUrl) {
+  if (!rawUrl || typeof rawUrl !== 'string') return false;
+  try {
+    const parsed = new URL(rawUrl);
+    return parsed.protocol === 'http:' || parsed.protocol === 'https:';
+  } catch (_) {
+    return false;
+  }
+}
+
 // ── ZTR Tab Open ──
 ipcMain.handle('ztr:open-tab', async (_event, targetUrl) => {
   const tabId = `tab-${nextTabId++}`;
@@ -206,7 +231,13 @@ ipcMain.handle('ztr:open-tab', async (_event, targetUrl) => {
   const ephemSession = session.fromPartition(partitionId, { cache: false });
   
   await applyTorProxy(ephemSession);
+  // L3-4: Deny asynchronous permission prompts and synchronous permission checks
   ephemSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
+  ephemSession.setPermissionCheckHandler((_wc, _perm, _origin) => false);
+  // L3-5: Prevent all downloads to local filesystem
+  ephemSession.on('will-download', (event) => {
+    event.preventDefault();
+  });
 
   const view = new WebContentsView({
     webPreferences: {
@@ -215,6 +246,18 @@ ipcMain.handle('ztr:open-tab', async (_event, targetUrl) => {
       contextIsolation: true,
       sandbox: true
     }
+  });
+
+  // L3-1: will-navigate navigation bounds
+  view.webContents.on('will-navigate', (event, navUrl) => {
+    if (!isAllowedNavigationUrl(navUrl)) {
+      event.preventDefault();
+    }
+  });
+
+  // L3-2: setWindowOpenHandler window creation bounds
+  view.webContents.setWindowOpenHandler(() => {
+    return { action: 'deny' };
   });
   
   view.webContents.on('did-navigate', (e, url) => {
@@ -243,17 +286,18 @@ ipcMain.handle('ztr:open-tab', async (_event, targetUrl) => {
     view.webContents.loadURL(`data:text/html,${html}`);
   });
 
-  activeTabs.set(tabId, { sessionUUID, partitionId, view, url: targetUrl || 'newtab' });
+  const initialUrl = (targetUrl && targetUrl !== 'newtab' && isAllowedIpcUrl(targetUrl)) ? targetUrl : 'newtab';
+  activeTabs.set(tabId, { sessionUUID, partitionId, view, url: initialUrl });
   
-  if (targetUrl && targetUrl !== 'newtab') {
-    view.webContents.loadURL(targetUrl);
+  if (initialUrl !== 'newtab') {
+    view.webContents.loadURL(initialUrl);
   }
   
   return {
     tabId,
     sessionUUID,
     partition: partitionId,
-    url: targetUrl || 'newtab',
+    url: initialUrl,
     status: 'sealed'
   };
 });
@@ -305,6 +349,9 @@ ipcMain.on('ztr:switch-tab', (e, tabId) => {
 });
 
 ipcMain.on('ztr:navigate', (e, tabId, url) => {
+  // L3-3: Reject non-http/https schemes at the IPC boundary
+  if (!isAllowedIpcUrl(url)) return;
+
   const tabData = activeTabs.get(tabId);
   if (tabData) {
     tabData.url = url;
@@ -333,8 +380,12 @@ ipcMain.on('ztr:reload', (e, tabId) => {
 
 // ── App Lifecycle ──
 app.whenReady().then(async () => {
-  // Deny permission requests by default on default session
+  // Deny permission requests & synchronous checks by default on default session
   session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
+  session.defaultSession.setPermissionCheckHandler((_wc, _perm, _origin) => false);
+  session.defaultSession.on('will-download', (event) => {
+    event.preventDefault();
+  });
   await applyTorProxy(session.defaultSession);
 
   await createWindow();
@@ -344,6 +395,11 @@ app.whenReady().then(async () => {
   });
 });
 
+app.on('certificate-error', (event, _webContents, _url, _error, _certificate, callback) => {
+  event.preventDefault();
+  callback(false);
+});
+
 app.on('window-all-closed', () => {
   if (torProcess) {
     try { torProcess.kill(); } catch (_) {}
@@ -351,3 +407,5 @@ app.on('window-all-closed', () => {
   }
   if (process.platform !== 'darwin') app.quit();
 });
+
+export { isAllowedNavigationUrl, isAllowedIpcUrl };
